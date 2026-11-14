@@ -311,6 +311,9 @@ $('#btn-rr').onclick = () => {
   updateButtons();
 };
 $('#btn-export').onclick = () => painter.exportPNG();
+// Restart from void: wipes only the PAINTING (painter.reset). The agents, music and runtime are not
+// touched, so nothing on Role 1/2/3's side is affected; the next notes start building the world again.
+$('#btn-void').onclick = () => painter.reset?.();
 
 // "View as" buttons (and clicking a badge): see the painting through one agent's eyes.
 //   scene painter:   recolours everything by that agent's own mood and shows its guesses (ghosts)
@@ -347,6 +350,7 @@ window.addEventListener('keydown', (e) => {
   if (k === '`') { DEBUG = !DEBUG; $('#debug').hidden = !DEBUG; }
   const click = (id) => { const b = $(id); if (!b.disabled) b.click(); };
   if (k === 'g') click('#btn-ghosts');
+  if (k === 'v') click('#btn-void');
   if (['1', '2', '3', '4'].includes(k)) setView(AGENTS[Number(k) - 1].id); // 1-4: view as Eye-A, Poet-A, Eye-B, Poet-B
   if (k === '0') setView(null);                                           // 0: back to everyone
   if (k === 's') click('#btn-start');

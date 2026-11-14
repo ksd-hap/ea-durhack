@@ -55,7 +55,8 @@ const GROW_PER_NOTE = { sky: 0.035, moon: 0.03, land: 0.03, water: 0.04, stars: 
 const SWEEP_PX_PER_BEAT = 15;     // CUSTOMISE: how fast the Melodist's pen crosses the canvas (W/15 ≈ 32 bars)
 const MOUNTAIN_COLS = 96;         // the skyline is stored as 96 column heights
 const MOUNTAIN_MAX = 430;         // CUSTOMISE: tallest a peak can get (px above the horizon)
-const PX_PER_SEMITONE = 26;       // CUSTOMISE: how much taller each step up in pitch makes a peak
+const PX_PER_SEMITONE = 22;       // CUSTOMISE: how much taller each step up in pitch makes a peak
+const LOWEST_PITCH = 58;          // CUSTOMISE: this pitch carves a flat skyline (Melodist plays 62-74 → 88-352 px)
 const CARVE_WIDTH = 2.2;          // CUSTOMISE: how wide each note's peak is (in columns)
 const PAPER = '#06060b';          // the void
 // Melkor's cracks
@@ -135,7 +136,7 @@ export async function createScenePainter(canvas, { seed = 1 } = {}) {
     return heights[i] * (1 - t) + heights[Math.min(MOUNTAIN_COLS - 1, i + 1)] * t;
   }
   /** How tall a note makes the skyline: higher pitch, taller peak. */
-  const peakFor = (pitch) => clamp((pitch - 55) * PX_PER_SEMITONE, 40, MOUNTAIN_MAX);
+  const peakFor = (pitch) => clamp((pitch - LOWEST_PITCH) * PX_PER_SEMITONE, 40, MOUNTAIN_MAX);
   /** Carve: pull the skyline towards this note's height around x (a soft bump, a few columns wide). */
   function carve(x, pitch) {
     const target = peakFor(pitch), c0 = x / COL_W;
@@ -387,32 +388,54 @@ export async function createScenePainter(canvas, { seed = 1 } = {}) {
     const risen = hills.map(([x, y]) => [x, HORIZON - (HORIZON - y) * grow.land]);
     fillLand(g, risen, HORIZON + 4, hsl(a.h + 235, 28, 20), hsl(a.h + 240, 30, 11));
   }
+  /**
+   * GHOSTS = guesses of where the Melodist's pen will carve next.
+   * Each guess is a small peak marker at the height that note WOULD carve, placed at the beat it
+   * was guessed for. Only guesses near the pen are shown (GHOST_BEHIND beats behind it,
+   * GHOST_AHEAD beats ahead), so they never pile up:
+   *   ahead of the pen  → hollow marker: "I think the next note will be this high"
+   *   behind the pen    → filled in the guesser's colour if it came true; a miss fades out
+   * Normal view: every agent's upcoming guesses as small dots. "View as": that agent's guesses,
+   * joined into a dashed "predicted skyline", with a label.
+   */
+  // CUSTOMISE: the window around the pen, in beats. Agents guess a whole bar ahead, so the
+  // guesses sit 4-8 beats in front of the pen: GHOST_AHEAD must be at least 8.
+  const GHOST_BEHIND = 6, GHOST_AHEAD = 9;
   function drawGhostPredictions(g) {
-    if (!ghostsVisible) return;
-    // Which agents' guesses to show: the viewed agent's, or (normal view) everyone's, faintly.
+    if (!ghostsVisible || t0 == null) return;
+    const b = nowBeat();
+    const near = ghosts.filter((gh) => gh.about === 'poetA' && gh.beat >= b - GHOST_BEHIND && gh.beat <= b + GHOST_AHEAD);
     const who = perspective ? [perspective] : ORDER;
     for (const from of who) {
       if (from === 'poetA') continue;                     // the Melodist doesn't predict itself
-      const mine = ghosts.filter((gh) => gh.from === from && gh.about === 'poetA').sort((p, q) => p.beat - q.beat);
+      const mine = near.filter((gh) => gh.from === from).sort((p, q) => p.beat - q.beat);
       if (!mine.length) continue;
-      const alpha = perspective ? 0.9 : 0.35;
-      g.setLineDash([6, 6]); g.lineWidth = perspective ? 2.5 : 1.5;
-      g.strokeStyle = `rgba(255,255,255,${alpha})`;
-      g.beginPath();
-      mine.forEach((gh, i) => { const x = melX(gh.beat), y = melY(gh.pitch); i ? g.lineTo(x, y) : g.moveTo(x, y); });
-      g.stroke(); g.setLineDash([]);
-      if (!perspective) continue;                         // normal view: just the faint dashed lines, no dots
-      for (const gh of mine) {                            // each guess: hollow = not (yet) right, filled = came true
-        const x = melX(gh.beat), y = melY(gh.pitch);
-        g.beginPath(); g.arc(x, y, gh.hit ? 6 : 5, 0, 6.283);
-        if (gh.hit) { g.fillStyle = agentColour(from, 70, alpha); g.fill(); }
-        else { g.strokeStyle = `rgba(255,255,255,${alpha})`; g.lineWidth = 1.5; g.stroke(); }
+      if (perspective) {
+        // Join neighbouring guesses (within a beat, no wrap-around jump) into a dashed predicted skyline.
+        g.setLineDash([10, 8]); g.lineWidth = 4; g.strokeStyle = 'rgba(255,255,255,0.75)';
+        for (let i = 1; i < mine.length; i++) {
+          const a = mine[i - 1], c = mine[i], xa = melX(a.beat), xc = melX(c.beat);
+          if (c.beat - a.beat > 1 || xc < xa) continue;
+          g.beginPath(); g.moveTo(xa, melY(a.pitch)); g.lineTo(xc, melY(c.pitch)); g.stroke();
+        }
+        g.setLineDash([]);
       }
-    }
-    if (perspective && t0 != null) {                      // the pen line: guesses to its right haven't been played yet
-      const px = melX(nowBeat());
-      g.strokeStyle = 'rgba(255,255,255,0.25)'; g.setLineDash([2, 6]); g.lineWidth = 1;
-      g.beginPath(); g.moveTo(px, HORIZON - MOUNTAIN_MAX - 20); g.lineTo(px, HORIZON); g.stroke(); g.setLineDash([]);
+      for (const gh of mine) {
+        const x = melX(gh.beat), y = melY(gh.pitch), ahead = gh.beat > b;
+        const missFade = !ahead && !gh.hit ? clamp(1 - (b - gh.beat) / GHOST_BEHIND, 0, 1) : 1;
+        const alpha = (perspective ? 0.95 : 0.55) * missFade;
+        if (alpha <= 0.02) continue;
+        // CUSTOMISE: marker size in canvas px (the canvas is 1920 wide but shown much smaller, so keep it big)
+        const s = perspective ? 22 : 12;                  // a peak (triangle) marker
+        g.beginPath(); g.moveTo(x, y - s); g.lineTo(x + s * 0.8, y + s * 0.6); g.lineTo(x - s * 0.8, y + s * 0.6); g.closePath();
+        if (gh.hit) { g.fillStyle = agentColour(from, 70, alpha); g.fill(); }
+        else { g.strokeStyle = perspective ? `rgba(255,255,255,${alpha})` : agentColour(from, 75, alpha); g.lineWidth = perspective ? 4 : 2.5; g.stroke(); }
+      }
+      const next = mine.find((gh) => gh.beat > b);
+      if (perspective && next) {                          // label the first upcoming guess
+        g.font = '30px system-ui, sans-serif'; g.fillStyle = 'rgba(255,255,255,0.95)';
+        g.fillText(`${AGENT_INFO[from].name}'s guess of the next peaks`, melX(next.beat) + 26, melY(next.pitch) - 28);
+      }
     }
   }
   function drawRain(g, t) {
@@ -517,12 +540,14 @@ export async function createScenePainter(canvas, { seed = 1 } = {}) {
     }
   }
   function drawPulses(g, t) {
+    // A soft glow (not an outline), so pulses can't be confused with the ghost markers.
     for (const p of pulses) {
       const age = (t - p.born) / PULSE_LIFE_MS; if (age > 1) continue;
-      const col = p.agent === 'melkor' ? `rgba(${CRACK_RGB},` : null;
-      g.lineWidth = 3 * (1 - age);
-      g.strokeStyle = col ? `${col}${1 - age})` : agentColour(p.agent, 75, 1 - age);
-      g.beginPath(); g.arc(p.x, p.y, 8 + 34 * age, 0, 6.283); g.stroke();
+      const rad = 10 + 26 * age, a = 0.55 * (1 - age);
+      const rg = g.createRadialGradient(p.x, p.y, 0, p.x, p.y, rad);
+      if (p.agent === 'melkor') { rg.addColorStop(0, `rgba(${CRACK_RGB},${a})`); rg.addColorStop(1, `rgba(${CRACK_RGB},0)`); }
+      else { rg.addColorStop(0, agentColour(p.agent, 80, a)); rg.addColorStop(1, agentColour(p.agent, 70, 0)); }
+      g.fillStyle = rg; g.beginPath(); g.arc(p.x, p.y, rad, 0, 6.283); g.fill();
     }
   }
   function drawLegend(g, t) {
@@ -643,8 +668,22 @@ export async function createScenePainter(canvas, { seed = 1 } = {}) {
     exportPNG(filename = `ea-painting-${Date.now()}.png`) {
       canvas.toBlob((blob) => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); }, 'image/png');
     },
-    reset() { queue = []; melody.length = 0; ghosts.length = 0; cracks.length = 0; outbreaks = []; moonRed = 0; kintsugi = false; heights.fill(0); Object.keys(grow).forEach((k) => (grow[k] = 0)); },
+    /**
+     * Back to the void: wipe the painted world so the music builds it again from nothing.
+     * Only the PAINTING resets. The agents, the music and the runtime carry on untouched
+     * (queued notes are kept, so painting resumes straight away).
+     */
+    reset() {
+      Object.keys(grow).forEach((k) => (grow[k] = 0));
+      heights.fill(0);
+      melody.length = 0; ghosts.length = 0; cracks.length = 0; outbreaks = [];
+      clouds.length = 0; ripples.length = 0; fireflies.length = 0; rain.length = 0; flares.length = 0; pulses.length = 0;
+      moonRed = 0;
+      Object.keys(ghostStats).forEach((k) => delete ghostStats[k]);
+    },
     stats: () => ({ ...stats, queued: queue.length, cracks: cracks.length, melody: melody.length }),
     cracks: () => cracks,
+    ghosts: () => ghosts,                            // DEBUG: EA.painter.ghosts() in the console
+    beatNow: () => nowBeat(),                        // DEBUG
   };
 }

@@ -166,6 +166,7 @@
     <span class="sep"></span>
     <!-- Painting -->
     <button id="btn-ghosts" class="on" title="Show or hide the ghost predictions">Ghosts on<kbd>G</kbd></button>
+    <button id="btn-void" title="Wipe the painting back to the empty void; the music keeps going and rebuilds the world">Restart from void<kbd>V</kbd></button>
     <button id="btn-export">Export painting<kbd>E</kbd></button>
   </div>
 
@@ -225,9 +226,9 @@
       <!-- Rolling averages. CUSTOMISE the window length: ROLLING_BARS in stage.js -->
       <h3>How well it's going (last ~25 s)</h3>
       <div class="kv"><span>Got the mood right</span><b id="m-acc">—</b></div>
-      <div class="hint">How often agents matched the real mood. The key number: it should stay high after Cut.</div>
+      <div class="hint">How often agents matched the real mood: the key number. Connected, they pool their readings and do better together; cut off, each relies on itself and stays well above a single "conductor" (try Baseline).</div>
       <div class="kv"><span>Agree with each other</span><b id="m-agree">—</b></div>
-      <div class="hint">How often two honest agents picked the same mood, without being told.</div>
+      <div class="hint">How often two honest agents picked the same mood. Connected they share one reading, so this is high; after Cut they drift apart, each still near the truth.</div>
       <div class="kv"><span>Guessed each other's next note</span><b id="m-ghost">—</b></div>
       <div class="hint">What they learned about each other: the dashed lines on the painting.</div>
       <div class="kv"><span>Notes in harmony</span><b id="m-cons">—</b></div>
