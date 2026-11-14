@@ -1,0 +1,62 @@
+{
+  "_about": "Agreed compose() contract between Role 2 (caller) and Role 3 (owner). 'input' is exactly what agent.js passes, except rng, which is a live function: build it as mulberry32(seedFor(rngSeed.id, rngSeed.seed)) from web/core/rng.js. 'output' is ILLUSTRATIVE: it shows the shape and sensible values, and Role 3's real output may differ. tests/compose.contract.test.mjs checks that compose(input) returns this shape.",
+  "examples": [
+    {
+      "name": "melodist, dorian, density 2, first bar of a chord slot, comms up",
+      "rngSeed": { "id": "poetA", "seed": 0 },
+      "input": {
+        "id": "poetA",
+        "role": "melodist",
+        "bar": 17,
+        "ctx": { "mode": "dorian", "density": 2 },
+        "state": { "motif": [0, 2, -1, -2], "motifBar": 16, "prevNotes": [69, 67, 65, 64] },
+        "predictions": [
+          { "peer": "eyeB", "role": "weaver", "bar": 17, "slot": 0, "beat": 0, "pc": 5, "pitch": 65, "count": 4 },
+          { "peer": "poetB", "role": "pulse", "bar": 17, "slot": 2, "beat": 1, "pc": 9, "pitch": 81, "count": 3 }
+        ],
+        "lastBarNotes": [
+          { "type": "note", "from": "eyeA", "at": 1731600053456.8, "bar": 16, "beat": 0, "pitch": 38, "vel": 0.5, "dur": 8, "role": "architect", "rogue": false },
+          { "type": "note", "from": "eyeB", "at": 1731600053456.8, "bar": 16, "beat": 0, "pitch": 65, "vel": 0.5, "dur": 2, "role": "weaver", "rogue": false }
+        ],
+        "absorb": null,
+        "defend": false,
+        "rogue": false
+      },
+      "output": {
+        "notes": [
+          { "beat": 0, "pitch": 69, "dur": 1, "vel": 0.7 },
+          { "beat": 1, "pitch": 67, "dur": 1, "vel": 0.55 },
+          { "beat": 2, "pitch": 65, "dur": 1, "vel": 0.65 },
+          { "beat": 3, "pitch": 64, "dur": 1, "vel": 0.5 }
+        ],
+        "state": { "motif": [0, 2, -1, -2], "motifBar": 16, "prevNotes": [69, 67, 65, 64] }
+      }
+    },
+    {
+      "name": "weaver, rogue flagged and comms up: absorb Eb into the Neapolitan",
+      "rngSeed": { "id": "eyeB", "seed": 0 },
+      "input": {
+        "id": "eyeB",
+        "role": "weaver",
+        "bar": 42,
+        "ctx": { "mode": "aeolian", "density": 3 },
+        "state": {},
+        "predictions": [],
+        "lastBarNotes": [
+          { "type": "note", "from": "poetB", "at": 1731600140123.5, "bar": 41, "beat": 1, "pitch": 75, "vel": 0.9, "dur": 0.5, "role": "pulse", "rogue": true }
+        ],
+        "absorb": { "pcs": [3] },
+        "defend": false,
+        "rogue": false
+      },
+      "output": {
+        "notes": [
+          { "beat": 0, "pitch": 63, "dur": 1.5, "vel": 0.6 },
+          { "beat": 1.5, "pitch": 67, "dur": 1.5, "vel": 0.55 },
+          { "beat": 3, "pitch": 58, "dur": 1, "vel": 0.5 }
+        ],
+        "state": { "absorbing": "neapolitan" }
+      }
+    }
+  ]
+}
