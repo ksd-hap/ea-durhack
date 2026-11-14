@@ -72,6 +72,17 @@ const s = m.snapshot(Date.now());
 - **Window.** Values are over the last 8 closed bars. A bar closes when telemetry for a later bar arrives.
 - `web/dev/harness.html` shows a working panel. Agent code never imports this file (isolation check).
 
+## Corrupting any agent (Melkor) **[PROPOSED by Role 2]**
+Any agent can be corrupted (`rt.setRogue(id, true)`), not just Pulse. **It corrupts its own job:**
+- **Sound (Role 3, `compose` with `rogue: true`).** Stay in your own register, rhythm and timbre, but poison it: a corrupted Architect plays a tritone drone and E♭ in the pad; a corrupted Weaver bends the inner voices onto E♭/G♯; and so on. **At least half the notes must be E♭/G♯, and at least 2 notes per bar**, so the others catch it within about 3 bars. A subtler saboteur is still caught by the count rule (4 unexplained E♭/G♯ in 8 bars), but more slowly: a 1-bad-note-per-2-bars Architect took 8 bars.
+- **Painting (Role 4).** Notes with `rogue: true` corrupt **that agent's own layer**: the Architect's sky and land, the Weaver's water, the Melodist's line, Pulse's stipple. Never another agent's layer.
+- **"Fixing it" (Role 2 decides, Roles 3 and 4 render).** Once an agent is flagged, **exactly one honest agent covers its job**: the first agent after it in the order eyeA → poetA → eyeB → poetB that the deciding agent considers honest. Every agent applies the rule on its own; there's no coordinator.
+  - The coverer gets `compose({... cover: 'architect'|'melodist'|'weaver'|'pulse' })`. **Role 3** adds a minimal, in-scale version of that job, e.g. covering the Architect with a D/A pedal.
+  - Its `status` telemetry carries `covering: role`, so **Role 4** can show that agent's brush repairing the corrupted layer (kintsugi on that layer).
+  - Absorb (all honest agents) and defend still apply as before.
+- **Measured** (`tests/corruption.test.mjs`): every agent, corrupted in its own job, is caught within 4 bars with 0 false flags; exactly one honest agent covers it. Role 3's honest composer played no E♭/G♯ in 13,689 notes.
+- **Known limit:** at 90% message loss, with honest agents answering Melkor every bar, 1 run in 30 had an honest agent flagged. An agent that has heard nothing from anyone may flag on its own evidence alone.
+
 ## Belief sharing (EÄ's method) **[PROPOSED by Roles 1+2]**
 Every bar, each agent broadcasts its own standardised (valence, arousal) for the current and upcoming scenes. When it plans a bar, it fuses its reading with the latest belief from each peer for the **same scene**:
 - the mean over itself and the peers it heard;
