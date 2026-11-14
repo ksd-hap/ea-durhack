@@ -41,3 +41,17 @@ Poet-A defines the frame (R = I), so its three rows differ only in the random co
 - Truth is a caption-based proxy (MPNet on all 5 captions), not human mood labels. The poets' own captions are among those 5, so their accuracy is partly circular; the eyes are the clean test.
 - Perception is precomputed offline per agent; alignment and every decision happen live in the browser.
 - Demo scenes were chosen by caption-based truth only, from a keyword pool disjoint from these 200.
+
+## Resilience (simulator, 200 held-out scenes × 10 seeds; charts: `artifacts/resilience.png`, `artifacts/detection.png`)
+
+| accuracy vs truth | loss 0 | 25% | 50% | 75% | cut |
+|---|---|---|---|---|---|
+| **EÄ: shared frame + belief sharing** | **48.0%** | 47.9% | 47.3% | 45.2% | **34.7%** |
+| EÄ agents alone (no sharing) | 34.7% | 34.7% | 34.7% | 34.7% | 34.7% |
+| Conductor baseline (one leader) | 26.5% | 25.9% | 24.8% | 21.6% | 16.9% |
+| Random rotation (control) | 10.1% | 10.1% | 10.2% | 10.6% | 10.7% |
+
+- **After the cut**, from the next scene on, EÄ equals the agents-alone line exactly (tested).
+- **Belief sharing vs agents alone**, measured against truth from captions 3–5 (which no agent sees): +14.9 points [95% CI +8.6, +21.1] (`experiments/belief_fusion.py`).
+- **Melkor** is flagged by every honest agent in 3.0 / 3.5 / 5.1 / 10.1 bars on average at loss 0 / 25 / 50 / 75%. At the cut there are no messages, so no new detection; existing flags hold.
+- **Honest agents falsely flagged: 0 in 400 runs.**

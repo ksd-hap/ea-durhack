@@ -26,9 +26,10 @@ export const LOOKAHEAD_BARS = 3; // must match web/world.worker.js
  * @param {boolean} o.rogue
  * @param {number} o.seed
  * @param {number} [o.measureFrom]  first bar measured (default: the event bar)
+ * @param {string} [o.rogueId]   which agent Melkor corrupts (default poetB = Pulse)
  * @param {Function} [o.compose]  override compose() (default: web/core/compose.js)
  */
-export function runOne({ data, scenes, method, loss, rogue, seed, eventBar = EVENT_BAR, measureFrom = eventBar, compose }) {
+export function runOne({ data, scenes, method, loss, rogue, seed, eventBar = EVENT_BAR, measureFrom = eventBar, compose, rogueId = ROGUE_ID }) {
   const agents = AGENT_IDS.map((id) =>
     createAgent({ id, params: data.agents[id], anchors: data.anchors, thresholds: data.thresholds, fusion: data.fusion ?? null, seed, ...(compose ? { compose } : {}) }),
   );
@@ -55,7 +56,7 @@ export function runOne({ data, scenes, method, loss, rogue, seed, eventBar = EVE
       if (next && bar === start + BARS_PER_SCENE - LOOKAHEAD_BARS) {
         for (const a of agents) a.onView(start + BARS_PER_SCENE, next.views[a.id]);
       }
-      if (rogue && bar === eventBar) agents.find((a) => a.id === ROGUE_ID).setRogue(true);
+      if (rogue && bar === eventBar) agents.find((a) => a.id === rogueId).setRogue(true);
 
       // Deliver last bar's outboxes.
       for (const { from, msg } of pending) {

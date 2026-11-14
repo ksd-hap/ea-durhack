@@ -38,6 +38,11 @@ export const DETECT = {
   alpha: 0.2, // EMA weight per delivered note
   level: 0.3, // EMA above this ...
   bars: 2, // ... for this many consecutive bars => suspect
+  // OR: this many UNEXPLAINED Eb/G# notes within countWindowBars => suspect. Honest agents never
+  // play an unexplained one, so a few is proof enough; this catches a SUBTLE saboteur that keeps
+  // its rate of bad notes too low for the EMA (e.g. one bad note every 2 bars).
+  count: 4,
+  countWindowBars: 8,
   silenceBars: 2, // nothing heard for this long => "silent"
   suspicionTtlBars: 4, // a peer's suspect message counts for this long
   roguePcWindowBars: 3, // absorb uses rogue pitch classes from the last N bars
@@ -105,6 +110,7 @@ export function createAgent({
   const peerSuspicion = {}; // target -> { from -> { suspect, score, bar } }
   const roguePcs = {}; // peer -> [{ bar, pc }] recent unexplained outside notes (feeds absorb)
   const rogueSeen = {}; // peer -> Set(absolute pc) every unexplained outside pc since reset
+  const evidenceBars = {}; // peer -> [bar of each unexplained outside note] (count rule)
   for (const p of peers) {
     ema[p] = 0;
     aboveBars[p] = 0;
@@ -113,6 +119,7 @@ export function createAgent({
     peerSuspicion[p] = {};
     roguePcs[p] = [];
     rogueSeen[p] = new Set();
+    evidenceBars[p] = [];
   }
 
   // An outside pitch class (Eb / G#) from `from` is EXPLAINED, and so is not evidence
@@ -219,6 +226,7 @@ export function createAgent({
         const evidence = isOutsideUnion(msg.pitch) && !explainedByAbsorb(from, pc);
         ema[from] = (1 - DETECT.alpha) * ema[from] + DETECT.alpha * (evidence ? 1 : 0);
         if (evidence) {
+          evidenceBars[from].push(msg.bar);
           roguePcs[from].push({ bar: msg.bar, pc });
           rogueSeen[from].add(pc);
         }
@@ -251,7 +259,8 @@ export function createAgent({
   function closeBar() {
     for (const p of peers) {
       aboveBars[p] = ema[p] > DETECT.level ? aboveBars[p] + 1 : 0;
-      suspected[p] = aboveBars[p] >= DETECT.bars;
+      evidenceBars[p] = evidenceBars[p].filter((b) => b > lastPlanned - DETECT.countWindowBars);
+      suspected[p] = aboveBars[p] >= DETECT.bars || evidenceBars[p].length >= DETECT.count;
     }
     barsSilent = rxSincePlan > 0 ? 0 : barsSilent + 1;
     rxSincePlan = 0;
@@ -354,6 +363,25 @@ export function createAgent({
       roguePcs[p] = roguePcs[p].filter((r) => r.bar >= bar - DETECT.roguePcWindowBars);
     }
 
+    // "Try to fix it": when a peer is flagged, exactly one honest agent covers that peer's job.
+    // Every agent applies the same rule on its own (no coordinator): the coverer is the first
+    // agent AFTER the flagged one in the fixed order that I consider honest; if that's me, I
+    // cover. (Under disagreement two agents may both cover for a while; that's harmless.)
+    let cover = null;
+    if (!rogue) {
+      for (const x of flaggedPeers) {
+        const i = AGENT_IDS.indexOf(x);
+        for (let k = 1; k < AGENT_IDS.length; k++) {
+          const c = AGENT_IDS[(i + k) % AGENT_IDS.length];
+          if (c === id || !flagged[c]) {
+            if (c === id) cover = ROLE_OF[x];
+            break;
+          }
+        }
+        if (cover) break;
+      }
+    }
+
     const predictions = predictionsFor(bar, ctx.mode);
     const lastBarNotes = received.get(bar - 1) ?? [];
     for (const k of received.keys()) if (k < bar - 4) received.delete(k);
@@ -370,6 +398,7 @@ export function createAgent({
       absorb,
       defend,
       rogue,
+      cover,
     });
 
     const notes = [];
@@ -424,6 +453,7 @@ export function createAgent({
         baseline,
         randomRotation: useRandomRotation,
         response,
+        covering: cover,
         suspected: peers.filter((p) => suspected[p]),
         flagged: flaggedPeers,
         barsSilent,
@@ -462,6 +492,7 @@ export function createAgent({
         peerSuspicion[p] = {};
         roguePcs[p] = [];
         rogueSeen[p] = new Set();
+        evidenceBars[p] = [];
       }
     },
     inspect() {
