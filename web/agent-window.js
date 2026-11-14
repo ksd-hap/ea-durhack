@@ -7,9 +7,11 @@
 //      (setRogue / setBaseline / resetFlags, and nothing else);
 //   3. answers presence pings, and refuses to run if this agent is already open elsewhere;
 //   4. displays this agent's own telemetry (display only; the Worker never reads it).
-// It never sends anything on ea-net, ea-hub or ea-sense-*.
+// It never touches the agent network, the hub or any sense channel. It joins the run named by
+// ?session= (set by rt.openAgentWindow), so a window from an earlier run can't join this one.
 
 import { AGENT_IDS, ROLE_OF } from './core/agent.js';
+import { CHANNEL, openChannel } from './channels.js';
 
 const RELAYED = new Set(['setRogue', 'setBaseline', 'resetFlags']);
 const COLOURS = { eyeA: '#d9a441', poetA: '#e8e2c8', eyeB: '#3fa59a', poetB: '#7b6cd9' };
@@ -18,6 +20,7 @@ const $ = (s) => document.getElementById(s);
 const params = new URLSearchParams(location.search);
 const id = params.get('id');
 const seed = Number(params.get('seed') ?? 0) || 0;
+const session = params.get('session');
 const nonce = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 function fail(msg) {
@@ -26,12 +29,13 @@ function fail(msg) {
 }
 
 if (!AGENT_IDS.includes(id)) fail(`unknown agent id "${id}" (use ?id=${AGENT_IDS.join('|')})`);
+if (!session) fail('no ?session= in the URL: open agent windows from the Stage (rt.openAgentWindow)');
 document.title = `EÄ · ${id}`;
 document.documentElement.style.setProperty('--accent', COLOURS[id]);
 $('name').firstChild.textContent = `${id} `;
 $('role').textContent = ROLE_OF[id];
 
-const ctl = new BroadcastChannel('ea-control');
+const ctl = openChannel(CHANNEL.control, session);
 let running = false;
 let taken = false;
 let worker = null;
@@ -68,7 +72,7 @@ await new Promise((resolve) => {
     if (e.data?.type === 'ready') resolve();
     if (e.data?.type === 'error') fail(e.data.message);
   });
-  worker.postMessage({ cmd: 'init', id, seed });
+  worker.postMessage({ cmd: 'init', id, seed, session });
 });
 running = true;
 ctl.postMessage({ type: 'present', id });
@@ -76,7 +80,7 @@ addEventListener('pagehide', () => ctl.postMessage({ type: 'gone', id }));
 $('state').textContent = 'ready: waiting for Start';
 
 // Display only.
-const tel = new BroadcastChannel('ea-telemetry');
+const tel = openChannel(CHANNEL.telemetry, session);
 let lastNote = '';
 tel.onmessage = (e) => {
   const m = e.data ?? {};

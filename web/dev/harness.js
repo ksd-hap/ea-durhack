@@ -17,14 +17,7 @@ let randRot = false;
 // ?agents=windows -> each agent in its own window (open them before Start).
 const agentHost = new URLSearchParams(location.search).get('agents') === 'windows' ? 'windows' : 'workers';
 const rt = await createRuntime({ seed: 0, agentHost });
-log(`runtime ready (${agentHost} mode):`, rt.agentIds.join(', '));
-if (agentHost === 'workers') {
-  setInterval(() => {
-    const s = rt.strayWindows();
-    $('#phase').dataset.stray = s.join(',');
-    if (s.length) $('#scene').innerHTML = `<span class="bad">Agent windows still open (${s.join(', ')}): they will double-play. Close them.</span>`;
-  }, 1000);
-}
+log(`runtime ready (${agentHost} mode, session ${rt.session}):`, rt.agentIds.join(', '));
 if (agentHost === 'windows') {
   const bar = $('#windows');
   bar.hidden = false;

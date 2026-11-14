@@ -24,6 +24,7 @@
 
 import { AGENT_IDS } from './core/agent.js';
 import { START_LEAD_MS, BAR_MS } from './core/time.js';
+import { CHANNEL, openChannel, newSession } from './channels.js';
 
 const now = () => performance.timeOrigin + performance.now();
 
@@ -32,23 +33,11 @@ const AGENT_CMDS = new Set(['setRogue', 'setBaseline', 'resetFlags']);
 const PRESENCE_TTL_MS = 3000;
 const PING_MS = 1000;
 
-function workerHost(seed) {
-  // Agent windows left open from a windows-mode run would ALSO obey this page's hub
-  // (same origin, same channels), so two copies of an agent would play. Detect and shout.
-  const probe = new BroadcastChannel('ea-control');
-  const strays = new Set();
-  probe.onmessage = (e) => {
-    if (e.data?.type === 'present' && !strays.has(e.data.id)) {
-      strays.add(e.data.id);
-      console.error(`runtime: agent window "${e.data.id}" is open; close all agent windows before using workers mode`);
-    }
-  };
-  probe.postMessage({ type: 'ping' });
-  const probeTimer = setInterval(() => probe.postMessage({ type: 'ping' }), PING_MS);
+function workerHost(seed, session) {
   const workers = {};
   const ready = Promise.all(
     AGENT_IDS.map((id) => {
-      const s = spawn(new URL('./agent.worker.js', import.meta.url), { cmd: 'init', id, seed }, id);
+      const s = spawn(new URL('./agent.worker.js', import.meta.url), { cmd: 'init', id, seed, session }, id);
       workers[id] = s.worker;
       return s.ready;
     }),
@@ -57,20 +46,20 @@ function workerHost(seed) {
     ready,
     presence: () => Object.fromEntries(AGENT_IDS.map((id) => [id, true])),
     onPresence: () => () => {},
-    strayWindows: () => [...strays],
     send(id, msg) {
       workers[id].postMessage(msg);
     },
     close() {
-      clearInterval(probeTimer);
-      probe.close();
       for (const w of Object.values(workers)) w.terminate();
     },
   };
 }
 
-function windowHost() {
-  const ctl = new BroadcastChannel('ea-control');
+// Windows mode. Agent windows join THIS run because their URL carries this run's session
+// (rt.openAgentWindow adds it). A window left over from an earlier run is on another session
+// and can't hear us, so it can't double-play.
+function windowHost(session) {
+  const ctl = openChannel(CHANNEL.control, session);
   const lastSeen = {};
   const fns = new Set();
   let resolveReady;
@@ -128,23 +117,24 @@ function spawn(url, initMsg, label) {
   return { worker: w, ready };
 }
 
-export async function createRuntime({ seed = 0, leadMs = START_LEAD_MS, agentHost = 'workers' } = {}) {
+export async function createRuntime({ seed = 0, leadMs = START_LEAD_MS, agentHost = 'workers', session = newSession() } = {}) {
   if (agentHost !== 'workers' && agentHost !== 'windows') throw new Error(`agentHost: ${agentHost}`);
   if (leadMs <= BAR_MS) console.warn(`runtime: leadMs ${leadMs} is under one bar; bar 0 may play the default mood`);
-  const telemetry = new BroadcastChannel('ea-telemetry');
-  const netem = new BroadcastChannel('ea-netem');
-  let hub = new BroadcastChannel('ea-hub');
+  // Every channel is private to this run's session, so other tabs/windows can't cross-talk.
+  const telemetry = openChannel(CHANNEL.telemetry, session);
+  const netem = openChannel(CHANNEL.netem, session);
+  let hub = openChannel(CHANNEL.hub, session);
   const listeners = new Set();
   telemetry.onmessage = (e) => {
     for (const fn of listeners) fn(e.data);
   };
 
-  const host = agentHost === 'windows' ? windowHost() : workerHost(seed);
+  const host = agentHost === 'windows' ? windowHost(session) : workerHost(seed, session);
   const toAgent = (id, msg) => {
     if (!AGENT_CMDS.has(msg.cmd)) throw new Error(`runtime: ${msg.cmd} is not a fault-injection switch`);
     host.send(id, msg);
   };
-  const world = spawn(new URL('./world.worker.js', import.meta.url), { cmd: 'init' }, 'world');
+  const world = spawn(new URL('./world.worker.js', import.meta.url), { cmd: 'init', session }, 'world');
   // Workers mode: wait for the agents too. Windows mode: they arrive when opened (rt.agentsReady).
   await Promise.all(agentHost === 'workers' ? [host.ready, world.ready] : [world.ready]);
 
@@ -158,13 +148,13 @@ export async function createRuntime({ seed = 0, leadMs = START_LEAD_MS, agentHos
 
   const rt = {
     agentIds: [...AGENT_IDS],
+    session,
     agentHost,
     agentsReady: host.ready,
     presence: host.presence,
     onPresence: host.onPresence,
-    /** Workers mode: ids of leftover agent windows that would double-play. Should be []. */
-    strayWindows: host.strayWindows ?? (() => []),
-    /** Windows mode: open (or focus) one agent's window, tiled 2x2. Call from a click handler. */
+    /** Windows mode: open one agent's window for THIS run, tiled 2x2. Call from a click handler.
+     *  Reuses the window name, so a stale window from an earlier run is replaced, not duplicated. */
     openAgentWindow(id) {
       const i = AGENT_IDS.indexOf(id);
       if (i < 0) throw new Error(`unknown agent ${id}`);
@@ -172,7 +162,7 @@ export async function createRuntime({ seed = 0, leadMs = START_LEAD_MS, agentHos
       const h = 300;
       const left = Math.max(0, (screen.availWidth || 1280) - 2 * w) + (i % 2) * w;
       const top = Math.floor(i / 2) * (h + 40);
-      const url = new URL(`./agent.html?id=${id}&seed=${seed}`, import.meta.url);
+      const url = new URL(`./agent.html?id=${id}&seed=${seed}&session=${session}`, import.meta.url);
       return window.open(url, `ea-agent-${id}`, `popup,width=${w},height=${h},left=${left},top=${top}`);
     },
     get t0() {

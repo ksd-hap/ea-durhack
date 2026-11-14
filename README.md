@@ -9,7 +9,7 @@ Four AI agents that were never trained together compose music and paint a shared
 cd web
 python -m http.server 8000
 ```
-Open http://localhost:8000. Workers don't load over `file://`. Keep **only one Stage tab open**, because tabs on the same origin share channels.
+Open http://localhost:8000. Workers don't load over `file://`. Each run gets private channels, so stray tabs can't interfere, but keep one Stage tab open for a single sound output. **Never create a `BroadcastChannel` yourself.** Use the runtime API (`rt.onTelemetry`, etc.); CI rejects hard-coded channels.
 
 **While developing, use the no-cache server instead.** Plain `http.server` lets the browser keep running your *old* JavaScript after an edit:
 ```bash
