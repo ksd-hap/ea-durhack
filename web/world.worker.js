@@ -11,6 +11,7 @@
 
 import { BARS_PER_SCENE, barAt } from './core/time.js';
 import { createTelemetrySender } from './telemetry-out.js';
+import { CHANNEL, openChannel } from './channels.js';
 
 const AGENT_IDS = ['eyeA', 'poetA', 'eyeB', 'poetB'];
 const LOOKAHEAD_BARS = 2;
@@ -22,12 +23,12 @@ let nextView = 0; // next scene index whose views are not yet sent
 let nextAnnounce = 0; // next scene index not yet announced on telemetry
 let lastRefreshBar = null; // last bar on which the current views were re-sent
 
-const senses = Object.fromEntries(AGENT_IDS.map((id) => [id, new BroadcastChannel(`ea-sense-${id}`)]));
-const telemetry = createTelemetrySender();
 const now = () => performance.timeOrigin + performance.now();
+let senses = null;
+let telemetry = null;
+let hub = null;
 
-let hub = new BroadcastChannel('ea-hub');
-hub.onmessage = (e) => {
+function onHub(e) {
   const h = e.data ?? {};
   if (h.type === 'start') {
     // Repeated until acknowledged, so idempotent: only a new t0 restarts the stream.
@@ -42,8 +43,10 @@ hub.onmessage = (e) => {
     hub.close();
     hub = null;
   }
-};
+}
 
+// Main thread sends only {cmd:'init', session, scenesUrl?}. Channels open here, once the
+// session (which run's channels to use) is known.
 self.onmessage = async (e) => {
   const m = e.data ?? {};
   if (m.cmd !== 'init' || scenes) return;
@@ -52,6 +55,10 @@ self.onmessage = async (e) => {
     if (!res.ok) throw new Error(`scenes.json: HTTP ${res.status}`);
     scenes = await res.json();
     if (!Array.isArray(scenes) || scenes.length === 0) throw new Error('scenes.json is empty');
+    senses = Object.fromEntries(AGENT_IDS.map((id) => [id, openChannel(CHANNEL.sense(id), m.session)]));
+    telemetry = createTelemetrySender(m.session);
+    hub = openChannel(CHANNEL.hub, m.session);
+    hub.onmessage = onHub;
     setInterval(tick, TICK_MS);
     self.postMessage({ type: 'ready', id: 'world', scenes: scenes.length });
   } catch (err) {

@@ -14,6 +14,7 @@
 
 import { AGENT_IDS } from './core/agent.js';
 import { START_LEAD_MS, BAR_MS } from './core/time.js';
+import { CHANNEL, openChannel, newSession } from './channels.js';
 
 const now = () => performance.timeOrigin + performance.now();
 
@@ -30,11 +31,12 @@ function spawn(url, initMsg, label) {
   return { worker: w, ready };
 }
 
-export async function createRuntime({ seed = 0, leadMs = START_LEAD_MS } = {}) {
+export async function createRuntime({ seed = 0, leadMs = START_LEAD_MS, session = newSession() } = {}) {
   if (leadMs <= BAR_MS) console.warn(`runtime: leadMs ${leadMs} is under one bar; bar 0 may play the default mood`);
-  const telemetry = new BroadcastChannel('ea-telemetry');
-  const netem = new BroadcastChannel('ea-netem');
-  let hub = new BroadcastChannel('ea-hub');
+  // Every channel is private to this run's session, so other tabs/windows can't cross-talk.
+  const telemetry = openChannel(CHANNEL.telemetry, session);
+  const netem = openChannel(CHANNEL.netem, session);
+  let hub = openChannel(CHANNEL.hub, session);
   const listeners = new Set();
   telemetry.onmessage = (e) => {
     for (const fn of listeners) fn(e.data);
@@ -42,11 +44,11 @@ export async function createRuntime({ seed = 0, leadMs = START_LEAD_MS } = {}) {
 
   const agents = {};
   const spawned = AGENT_IDS.map((id) => {
-    const s = spawn(new URL('./agent.worker.js', import.meta.url), { cmd: 'init', id, seed }, id);
+    const s = spawn(new URL('./agent.worker.js', import.meta.url), { cmd: 'init', id, seed, session }, id);
     agents[id] = s.worker;
     return s.ready;
   });
-  const world = spawn(new URL('./world.worker.js', import.meta.url), { cmd: 'init' }, 'world');
+  const world = spawn(new URL('./world.worker.js', import.meta.url), { cmd: 'init', session }, 'world');
   await Promise.all([...spawned, world.ready]);
 
   let t0 = null;
@@ -59,6 +61,7 @@ export async function createRuntime({ seed = 0, leadMs = START_LEAD_MS } = {}) {
 
   const rt = {
     agentIds: [...AGENT_IDS],
+    session,
     get t0() {
       return t0;
     },
