@@ -135,7 +135,7 @@ export function createAgent({
 
   function onView(bar, vec) {
     const z = embed(prep, vec, useRandomRotation);
-    const s = moodScores(prep, anc, z);
+    const s = moodScores(prep, anc, z, useRandomRotation);
     const vLevel = levelWithHysteresis(s.valence, th.valence, th.h, lastLevels.v);
     const aLevel = levelWithHysteresis(s.arousal, th.arousal, th.h, lastLevels.a);
     lastLevels = { v: vLevel, a: aLevel };

@@ -27,6 +27,9 @@ export function prepareParams(p) {
     val_std: p.val_std || 1,
     aro_mean: p.aro_mean ?? 0,
     aro_std: p.aro_std || 1,
+    // The random-rotation control standardises with ITS OWN calibration statistics when
+    // agents.json provides them (stats_by_method.random); otherwise the fitted ones.
+    statsRandom: p.stats_by_method?.random ?? null,
   };
 }
 
@@ -48,15 +51,16 @@ export function embed(prep, x, useRandomRotation = false) {
   return vecMat(vecMat(sub(x, prep.mu), prep.W), R);
 }
 
-export function moodScores(prep, anchors, z) {
+export function moodScores(prep, anchors, z, useRandomRotation = false) {
   const u = normalise(z);
   const valenceRaw = meanDot(u, anchors.valence_pos) - meanDot(u, anchors.valence_neg);
   const arousalRaw = meanDot(u, anchors.arousal_pos) - meanDot(u, anchors.arousal_neg);
+  const st = useRandomRotation && prep.statsRandom ? prep.statsRandom : prep;
   return {
     valenceRaw,
     arousalRaw,
-    valence: (valenceRaw - prep.val_mean) / prep.val_std,
-    arousal: (arousalRaw - prep.aro_mean) / prep.aro_std,
+    valence: (valenceRaw - st.val_mean) / (st.val_std || 1),
+    arousal: (arousalRaw - st.aro_mean) / (st.aro_std || 1),
   };
 }
 
