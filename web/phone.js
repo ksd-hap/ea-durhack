@@ -38,6 +38,14 @@ try { nudgeMs = Number(localStorage.getItem('ea-nudge') || 0); } catch {}
 $('#nudge').value = nudgeMs;
 $('#nudgev').textContent = nudgeMs;
 const taken = {}; // id -> last seen
+// From a QR code: phone.html?id=eyeA shows just that role, as one big button (the tap is still
+// needed: phones only unlock sound inside a tap).
+const wanted = AGENT_IDS.includes(new URLSearchParams(location.search).get('id')) ? new URLSearchParams(location.search).get('id') : null;
+if (wanted) {
+  $('#join').style.gridTemplateColumns = '1fr';
+  document.documentElement.style.setProperty('--accent', COLOURS[wanted]);
+  document.querySelector('h1').textContent = `EÄ: you are ${NAMES[wanted]}`;
+}
 
 const showNet = () => {
   const c = clockInfo();
@@ -63,7 +71,7 @@ async function findSession() {
 const joinButtons = {};
 function renderJoin() {
   const now = Date.now();
-  for (const id of AGENT_IDS) {
+  for (const id of wanted ? [wanted] : AGENT_IDS) {
     let b = joinButtons[id];
     if (!b) {
       b = joinButtons[id] = document.createElement('button');
@@ -73,7 +81,9 @@ function renderJoin() {
     }
     const isTaken = taken[id] && now - taken[id] < 3500;
     b.disabled = !!myId || isTaken;
-    const html = `${NAMES[id]}<small>${ROLE_OF[id]} · sees ${SEES[id]}${isTaken ? '<br>taken' : ''}</small>`;
+    const label = wanted ? `Tap to join as ${NAMES[id]}` : NAMES[id];
+    const html = `${label}<small>${ROLE_OF[id]} · sees ${SEES[id]}${isTaken ? '<br>already on another phone' : ''}</small>`;
+    if (wanted) { b.style.padding = '34px 12px'; b.style.fontSize = '22px'; }
     if (b.innerHTML !== html) b.innerHTML = html;
   }
 }

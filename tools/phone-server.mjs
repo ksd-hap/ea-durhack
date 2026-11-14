@@ -28,9 +28,21 @@ const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '
 const now = () => performance.timeOrigin + performance.now();
 
 // ---- static files (no caching: the browser always gets the JS you just saved) ----
+// The laptop's addresses on the network, so the Stage (opened as localhost) can print QR codes
+// that phones can actually reach. Hotspot addresses (Windows: 192.168.137.x) are listed first.
+function lanAddresses() {
+  const ips = Object.values(networkInterfaces()).flat().filter((i) => i && i.family === 'IPv4' && !i.internal).map((i) => i.address);
+  return ips.sort((a, b) => (b.startsWith('192.168.137.') ? 1 : 0) - (a.startsWith('192.168.137.') ? 1 : 0));
+}
+
 const server = createServer(async (req, res) => {
   try {
     let path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+    if (path === '/ip') {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ ips: lanAddresses(), port: PORT, servingNetwork: HOST !== '127.0.0.1' && HOST !== 'localhost' }));
+      return;
+    }
     if (path.endsWith('/')) path += 'index.html';
     const file = normalize(join(ROOT, path));
     if (!file.startsWith(ROOT + sep) && file !== ROOT) throw Object.assign(new Error('forbidden'), { code: 403 });

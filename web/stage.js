@@ -377,6 +377,16 @@ try {
     };
     rt.onPresence(show);
     setTimeout(() => show(rt.presence()), 0);
+    // QR codes (Role 2): scan with each phone's camera to land on that agent's join page.
+    const qrBox = document.createElement('div');
+    qrBox.id = 'phones-qr';
+    qrBox.style.cssText = 'position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:50;background:#17171fee;' +
+      'border:1px solid #2a2a36;border-radius:14px;padding:14px 16px;width:min(680px,94vw);max-height:92vh;overflow:auto;' +
+      'box-sizing:border-box;box-shadow:0 10px 40px #000a';
+    qrBox.innerHTML = '<div style="text-align:center;font-weight:600;margin-bottom:10px">Scan to join (one phone per agent)</div><div></div>';
+    document.body.append(qrBox);
+    import('./phones-qr.js').then((m) => m.renderJoinQRs(qrBox.lastChild, { compact: true }));
+    $('#btn-start').addEventListener('click', () => qrBox.remove());
   }
   rt.onTelemetry(ingest);
   $('#btn-start').disabled = false;
