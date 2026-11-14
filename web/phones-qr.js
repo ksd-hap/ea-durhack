@@ -33,6 +33,16 @@ export async function phoneBaseUrl() {
   return { base: `http://${ips[0]}:${port}`, others: ips.slice(1).map((ip) => `http://${ip}:${port}`) };
 }
 
+/** A human hint for which network an address is on. */
+function netName(base) {
+  const ip = base.replace(/^http:\/\//, '').split(':')[0];
+  if (ip.startsWith('192.168.137.')) return "laptop's own hotspot";
+  if (ip.startsWith('172.20.10.')) return 'iPhone hotspot';
+  if (ip.startsWith('192.168.43.')) return 'Android hotspot';
+  if (ip.startsWith('10.')) return 'eduroam / venue Wi-Fi: phones usually cannot reach this';
+  return 'Wi-Fi';
+}
+
 export function qrSvg(text, cell = 5) {
   const qr = globalThis.qrcode(0, 'M'); // type 0 = smallest version that fits; M = 15% error correction
   qr.addData(text);
@@ -40,7 +50,7 @@ export function qrSvg(text, cell = 5) {
   return qr.createSvgTag({ cellSize: cell, margin: 2, scalable: true });
 }
 
-export async function renderJoinQRs(el, { compact = false } = {}) {
+export async function renderJoinQRs(el, { compact = false, base: chosen = null } = {}) {
   await loadQrLib();
   let base;
   let others;
@@ -50,6 +60,11 @@ export async function renderJoinQRs(el, { compact = false } = {}) {
     el.innerHTML = `<p style="color:#e66">QR codes unavailable: ${err.message}</p>`;
     return null;
   }
+  // The laptop can have several addresses (its own hotspot, a phone's hotspot, eduroam...). The codes
+  // must use the one on the network the PHONES are on, so let the operator switch between them.
+  const all = [base, ...others];
+  if (chosen && all.includes(chosen)) base = chosen;
+  others = all.filter((b) => b !== base);
   // Cards size to the space they get (2x2 in a narrow window, 4 across in a wide one), but never
   // below ~120 px: smaller codes get hard to scan from a few metres away.
   const card = (title, sub, url, colour) => `
@@ -63,7 +78,10 @@ export async function renderJoinQRs(el, { compact = false } = {}) {
       ${AGENTS.map((a) => card(a.name, a.role, `${base}/phone.html?id=${a.id}`, a.colour)).join('')}
       ${compact ? '' : card('Phone check', 'first time only', `${base}/phone-check.html`, '#555')}
     </div>
-    <p style="text-align:center;color:#8a8698;font-size:12px;margin:8px 0 0">Scan with the phone's camera, then tap to join. ${base}${others.length ? ` (also: ${others.join(', ')})` : ''}</p>`;
+    <p style="text-align:center;color:#8a8698;font-size:12px;margin:8px 0 0">Scan with the phone's camera, then tap to join. Codes point to <b style="color:#e8e4da">${base}</b></p>
+    ${all.length > 1 ? `<p style="text-align:center;font-size:12px;margin:6px 0 0;color:#8a8698">Phones on a different network? Use:
+      ${others.map((b) => `<button data-base="${b}" style="margin:2px;padding:3px 8px;font-size:12px">${b.replace('http://', '')} (${netName(b)})</button>`).join('')}</p>` : ''}`;
   for (const svg of el.querySelectorAll('svg')) { svg.style.width = '100%'; svg.style.height = '100%'; }
+  for (const b of el.querySelectorAll('button[data-base]')) b.onclick = () => renderJoinQRs(el, { compact, base: b.dataset.base });
   return base;
 }
