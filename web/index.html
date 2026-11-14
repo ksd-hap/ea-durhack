@@ -117,7 +117,7 @@
   #m-phase[data-phase="Void"] { color: var(--violet); }    /* cut off */
   #m-rx { font-size: 20px; font-weight: 700; }
   body[data-phase="void"] #m-rx { color: var(--violet); }
-  #m-thumb { width: 100%; border-radius: 6px; margin-top: 4px; }
+  #m-thumb { width: 100%; max-height: 120px; object-fit: cover; border-radius: 6px; margin-top: 4px; opacity: .85; } /* small: it's the input, not the show */
   #m-caption { font-size: 12px; color: var(--muted); }
   table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
   td { padding: 3px 2px; border-bottom: 1px solid var(--line); font-size: 13px; }
@@ -205,11 +205,12 @@
       <div class="hint">0 means they are completely cut off from each other.</div>
 
       <!-- The right answer for the current scene, so judges can check the agents -->
-      <h3>The scene right now</h3>
+      <!-- The INPUT, not a picture of the painting: the agents hear this scene and sing a world from it. -->
+      <h3>What they are listening to</h3>
+      <div class="hint">This is the input, not the painting. Each agent senses only one part of it (the photo, a crop, or a caption), guesses its mood, and plays. The painting is the world their music builds.</div>
       <img id="m-thumb" alt="" hidden>
-      <div class="kv"><span>Its real mood</span><b id="m-truth">—</b></div>
       <div id="m-caption"></div>
-      <div class="hint">Each agent sees only part of this scene (a photo, a crop or a caption) and must guess the mood.</div>
+      <div class="kv"><span>Its real mood</span><b id="m-truth">—</b></div>
 
       <!-- One row per agent: its own guess, ✓/✗ against the real mood, what it thinks of Melkor -->
       <h3>What each agent thinks</h3>
