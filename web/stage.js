@@ -38,6 +38,10 @@ const metrics = createMetrics({ rollingBars: ROLLING_BARS });
 const relD = (p) => (((p - 62) % 12) + 12) % 12;
 
 let DEBUG = new URLSearchParams(location.search).has('debug');
+// PHONES (added by Role 2): ?phones runs the agents on 4 phones (phone.html) instead of in this page.
+// Serve with `node tools/phone-server.mjs`. The Stage then only paints and shows metrics; it stays
+// SILENT, because every phone plays its own agent's voice.
+const PHONES = new URLSearchParams(location.search).has('phones');
 const dbg = (...a) => DEBUG && console.log('[stage]', ...a); // DEBUG: logs only when debug is on
 const nowAbs = () => performance.timeOrigin + performance.now();
 const $ = (sel) => document.querySelector(sel);
@@ -267,7 +271,7 @@ $('#btn-start').onclick = async () => {
   if (state.started || !rt) return;
   $('#btn-start').disabled = true;
   // INTEGRATE (Role 3): audio must start inside this click (the browser's autoplay rule).
-  try {
+  if (!PHONES) try {
     // Role 3's audio.js needs Tone.js as a global (vendor/tone.js). Load it here if it's there,
     // so audio works as soon as Role 3 adds the file; if it's missing we just run silent.
     if (!window.Tone) {
@@ -365,7 +369,15 @@ window.addEventListener('keydown', (e) => {
 $('#debug').hidden = !DEBUG;
 updateButtons();
 try {
-  rt = await createRuntime({ seed: SEED }); // spawns the 4 agent Workers and the world worker
+  rt = await createRuntime({ seed: SEED, ...(PHONES ? { agentHost: 'phones' } : {}) }); // spawns the 4 agent Workers and the world worker (PHONES: just the world)
+  if (PHONES) {
+    const show = (p) => {
+      const n = Object.values(p).filter(Boolean).length;
+      if (!state.started) $('#btn-start').innerHTML = `Start (${n}/4 phones)<kbd>S</kbd>`;
+    };
+    rt.onPresence(show);
+    setTimeout(() => show(rt.presence()), 0);
+  }
   rt.onTelemetry(ingest);
   $('#btn-start').disabled = false;
   $('#btn-start').innerHTML = 'Start<kbd>S</kbd>';

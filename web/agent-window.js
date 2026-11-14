@@ -76,6 +76,7 @@ await new Promise((resolve) => {
 });
 running = true;
 ctl.postMessage({ type: 'present', id });
+setInterval(() => ctl.postMessage({ type: 'present', id }), 1500); // heartbeat: don't depend on the Stage's pings
 addEventListener('pagehide', () => ctl.postMessage({ type: 'gone', id }));
 $('state').textContent = 'ready: waiting for Start';
 

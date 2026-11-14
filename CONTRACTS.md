@@ -142,4 +142,16 @@ rt.setLoss(p); rt.cut(); rt.restore(); rt.setRogue('poetB', on); rt.setBaseline(
 - `rt.presence()`, `rt.onPresence(fn)` and `rt.agentsReady` track which windows are up.
 - Keep all four windows **visible** (tiled). Browsers slow down hidden or fully covered windows.
 
+## Phones mode (stretch, `phones` branch) **[PROPOSED by Role 2]**
+Each agent runs on its own phone and plays **its own voice**. The laptop Stage only paints and shows metrics, and stays silent.
+- **Server:** `node tools/phone-server.mjs` serves `web/` and relays channel messages between devices. It's a dumb broadcast medium: it never inspects payloads (isolation check). It also answers clock pings and remembers the Stage's session.
+- **Clock:** every device schedules on `web/clock.js`, synced to the laptop (NTP-style, minimum round trip).
+- **Channels:** `openChannel()` goes over the relay when `useRelay()` is set, so agent code is unchanged.
+- **Stage:** `http://localhost:8000/?phones` uses `createRuntime({ agentHost: 'phones' })`. Only the world runs on the laptop; the Start button shows `n/4 phones`.
+- **Phones:**
+  - `http://<laptop-ip>:8000/phone.html` finds the run and offers the four roles (taken ones greyed out). One tap unlocks sound (iOS 17+ plays through the silent switch) and starts the agent.
+  - Each phone plays only its own notes, with bass below D3 lifted an octave for phone speakers and a per-phone timing nudge.
+  - Each phone shows its mood, its view (photo for the eyes, caption for Poet-A), and Melkor, caught, covering and cut-off states.
+- **Check:** `phone-check.html` runs a one-tap check of sound, connection, clock and agent engine, plus a shared 72 BPM beat for side-by-side sync.
+
 **Several Stage tabs no longer interfere** (each run has its own session), but for the demo still keep one Stage tab open, so there's only one sound output.

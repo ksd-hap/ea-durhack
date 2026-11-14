@@ -35,14 +35,16 @@ hits=$(grep -HnoE "cmd: *'[a-zA-Z]+'" web/*.js web/dev/*.js 2>/dev/null | grep -
 hits=$(grep -rHnE 'new BroadcastChannel\(' web --include='*.js' --include='*.html' | grep -v '^web/channels.js:' | code)
 [ -n "$hits" ] && bad "create channels only via openChannel() in web/channels.js:"$'\n'"$hits"
 
-# 7. An agent window only hosts and relays: it never touches the musical channels or the
-#    answers, and relays nothing but the three fault-injection switches.
-for pat in 'ea-net' 'ea-hub' 'ea-sense' 'CHANNEL.net' 'CHANNEL.hub' 'CHANNEL.sense' 'truth' 'scenes'; do
-  hits=$(grep -HnF -- "$pat" web/agent-window.js 2>/dev/null | code)
-  [ -n "$hits" ] && bad "agent-window.js references '$pat':"$'\n'"$hits"
+# 7. An agent host page (a window, or a phone) only hosts and relays: it never touches the
+#    musical channels or the answers, and relays nothing but the three fault-injection switches.
+for host in web/agent-window.js web/phone.js; do
+  for pat in 'ea-net' 'ea-hub' 'ea-sense' 'CHANNEL.net' 'CHANNEL.hub' 'CHANNEL.sense' 'truth' 'scenes'; do
+    hits=$(grep -HnF -- "$pat" "$host" 2>/dev/null | code)
+    [ -n "$hits" ] && bad "$host references '$pat':"$'\n'"$hits"
+  done
+  grep -qF "RELAYED = new Set(['setRogue', 'setBaseline', 'resetFlags'])" "$host" \
+    || bad "$host must relay exactly setRogue, setBaseline, resetFlags"
 done
-grep -qF "RELAYED = new Set(['setRogue', 'setBaseline', 'resetFlags'])" web/agent-window.js \
-  || bad "agent-window.js must relay exactly setRogue, setBaseline, resetFlags"
 
 # 8. Network sockets only in web/relay-client.js (the cross-device form of rule 6), and the
 #    relay server never inspects or alters payloads (it has no musical logic to leak).

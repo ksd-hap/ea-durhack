@@ -24,6 +24,15 @@ Dev pages (serve from the **repo root** instead, so `sim/` is reachable):
 ### Agents in separate windows (stretch)
 Open `http://localhost:8000/web/dev/harness.html?agents=windows` (served from the repo root) and click each agent's button to open its window. Start becomes available once all four show ●. Each window hosts one agent Worker; the Stage keeps the world, sound and painting. Demo beat: close one agent's window mid-performance and the other three carry on.
 
+### Agents on four phones (stretch)
+1. Put the laptop and the phones on one network; the laptop's Mobile Hotspot is best.
+2. Start the server: `node tools/phone-server.mjs`. Allow Node.js through the Windows firewall on **Private** networks.
+3. Laptop: open `http://localhost:8000/?phones`.
+4. Each phone: open the `http://<ip>:8000/phone.html` address the server prints. Use Safari on iPhone, Chrome on Android. Tap a role.
+5. When the Start button shows **4/4 phones**, press Start.
+
+First time, open `/phone-check.html` on each phone. Every phone needs Auto-Lock: Never, Low Power Mode off, Do Not Disturb on, and volume up.
+
 ## Who owns what
 | Role | Owns | Branch |
 |---|---|---|
