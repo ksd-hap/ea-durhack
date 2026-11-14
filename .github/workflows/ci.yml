@@ -1,0 +1,17 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Isolation check (agents never peek at the answer)
+        run: bash tools/check_isolation.sh
+      - name: Unit + simulator tests
+        run: node --test tests/

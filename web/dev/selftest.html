@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>EÄ self-test</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { font: 14px/1.5 system-ui, sans-serif; margin: 16px; background: #111; color: #ddd; }
+    .pass { color: #7c7; } .fail { color: #e66; }
+    pre { background: #000; padding: 8px; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>EÄ Role 2 self-test (no Node needed)</h1>
+  <p>Serve from the <b>repo root</b>: <code>python -m http.server 8000</code> → <code>http://localhost:8000/web/dev/selftest.html</code></p>
+  <ul id="out"></ul>
+  <pre id="table"></pre>
+  <script type="module">
+    import { prepareParams, prepareAnchors, embed, moodScores, level, contextFromLevels } from '../core/perception.js';
+    import { runOne } from '../../sim/engine.mjs';
+    const out = document.getElementById('out');
+    const results = [];
+    const report = (name, ok, detail = '') => {
+      results.push({ name, ok });
+      out.insertAdjacentHTML('beforeend', `<li class="${ok ? 'pass' : 'fail'}">${ok ? 'PASS' : 'FAIL'} — ${name} ${detail}</li>`);
+    };
+    const j = (u) => fetch(u).then((r) => { if (!r.ok) throw new Error(u + ' ' + r.status); return r.json(); });
+    const data = await j('../data/agents.json');
+    const tvs = await j('../data/testvectors.json');
+    const scenes = (await j('../../sim/data/scenes_eval.json')).slice(0, 12);
+
+    // 1. JS vs NumPy
+    let worst = 0, ctxOk = true;
+    const anchors = prepareAnchors(data.anchors);
+    for (const tv of tvs) {
+      const prep = prepareParams(data.agents[tv.agent]);
+      const z = embed(prep, tv.x);
+      z.forEach((v, i) => { worst = Math.max(worst, Math.abs(v - tv.z[i])); });
+      const s = moodScores(prep, anchors, z);
+      worst = Math.max(worst, Math.abs(s.valence - tv.valence), Math.abs(s.arousal - tv.arousal));
+      const c = contextFromLevels(level(s.valence, data.thresholds.valence), level(s.arousal, data.thresholds.arousal));
+      if (c.mode !== tv.context.mode || c.density !== tv.context.density) ctxOk = false;
+    }
+    report('JS vs NumPy testvectors (z, valence, arousal ≤ 1e-4; context exact)', worst <= 1e-4 && ctxOk, `max err ${worst.toExponential(2)}`);
+
+    // 2. False positives
+    let fp = 0;
+    for (const method of ['ea', 'random', 'baseline'])
+      for (const loss of [0, 0.5, 1])
+        for (let seed = 0; seed < 10; seed++) fp += runOne({ data, scenes, method, loss, rogue: false, seed }).false_positive_flags;
+    report('0 false-positive flags, rogue off, 10 seeds × 3 methods × 3 losses', fp === 0, `(${fp})`);
+
+    // 3. Detection
+    const lat = [];
+    let fpRogue = 0;
+    for (let seed = 0; seed < 10; seed++) {
+      const r = runOne({ data, scenes, method: 'ea', loss: 0, rogue: true, seed });
+      lat.push(r.detect_all_bars);
+      fpRogue += r.false_positive_flags;
+    }
+    report('rogue flagged by all honest agents within 4 bars, loss 0, every seed', lat.every((l) => l !== null && l <= 4), `latencies ${lat.join(',')}`);
+    report("rogue's false accusations never flag an honest agent", fpRogue === 0, `(${fpRogue})`);
+
+    // 4. Mini resilience table
+    const rows = [];
+    for (const method of ['ea', 'baseline', 'random'])
+      for (const loss of [0, 0.5, 1]) {
+        const r = runOne({ data, scenes, method, loss, rogue: false, seed: 0 });
+        rows.push(`${method.padEnd(9)} loss ${loss.toFixed(2)}  acc ${r.accuracy.toFixed(3)}  agree ${r.agreement.toFixed(3)}  cons ${r.consonance.toFixed(3)}  pred ${(r.prediction_match ?? 0).toFixed(3)}`);
+      }
+    document.getElementById('table').textContent = (data.fake ? 'FAKE DATA — plumbing only\n' : '') + rows.join('\n');
+    window.__selftest = results;
+  </script>
+</body>
+</html>

@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+ml/cache/
+ml/*.npy
+ml/images/
+ml/coco/
+*.pt
+*.safetensors
+# Node
+node_modules/
+# Outputs (commit the final ones deliberately with git add -f)
+sim/out/*
+!sim/out/.gitkeep
+# OS / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+# Secrets
+.env
+*.key

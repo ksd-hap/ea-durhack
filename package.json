@@ -1,0 +1,15 @@
+{
+  "name": "ea-durhack",
+  "private": true,
+  "type": "module",
+  "description": "EÄ: four AI agents compose and paint without a hub",
+  "scripts": {
+    "test": "node --test tests/",
+    "isolation": "bash tools/check_isolation.sh",
+    "sim": "node sim/sim.mjs",
+    "sim:quick": "node sim/sim.mjs --seeds 2 --scenes 40",
+    "fake-data": "python tools/make_fake_data.py",
+    "serve": "python -m http.server 8000 --directory web"
+  },
+  "engines": { "node": ">=20" }
+}

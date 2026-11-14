@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EÄ runtime harness (Role 2)</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { font: 14px/1.4 system-ui, sans-serif; margin: 16px; background: #111; color: #ddd; }
+    button { margin: 2px; padding: 6px 10px; }
+    table { border-collapse: collapse; margin-top: 12px; }
+    td, th { border: 1px solid #333; padding: 4px 8px; text-align: left; }
+    .ok { color: #7c7; } .bad { color: #e66; } .warn { color: #ec6; }
+    #log { white-space: pre; font: 12px monospace; max-height: 240px; overflow: auto; background: #000; padding: 8px; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <h1>EÄ runtime harness</h1>
+  <p>Role 2's dev page: workers, network, world, detection. No audio or painting (that's Stage).
+     Serve from <code>web/</code> → <code>http://localhost:8000/dev/harness.html</code>, or from the repo root → <code>/web/dev/harness.html</code></p>
+  <div>
+    <button id="start">Start (rehearsal, hub on)</button>
+    <button id="randrot">Random rotation: off</button>
+    <button id="cut">Cut</button>
+    <button id="restore">Restore</button>
+    <button id="rogue">Corrupt Pulse: off</button>
+    <button id="baseline">Baseline: off</button>
+    <label>loss <input id="loss" type="range" min="0" max="1" step="0.05" value="0"> <span id="lossv">0</span></label>
+  </div>
+  <div id="phase"></div>
+  <div id="scene"></div>
+  <table id="agents"><thead><tr><th>agent</th><th>ctx</th><th>✓truth</th><th>rx/s</th><th>suspected</th><th>flagged</th><th>response</th><th>ghosts</th><th>notes</th></tr></thead><tbody></tbody></table>
+  <div id="log"></div>
+  <script type="module" src="./harness.js"></script>
+</body>
+</html>
