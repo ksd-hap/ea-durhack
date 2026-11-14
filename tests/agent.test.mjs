@@ -54,9 +54,12 @@ test('own suspicion + one corroboration flags; flags are sticky until resetFlags
   const out = step(0, false);
   assert.deepEqual(a.inspect().flagged, ['poetB']);
   assert.equal(out.telemetry.find((t) => t.type === 'status').response, 'absorb');
-  for (let i = 0; i < 10; i++) a.planBar(bar++); // silence
+  // Silence: a short defend phrase as it begins, then back to normal; the flag holds throughout.
+  const responses = [];
+  for (let i = 0; i < 10; i++) responses.push(a.planBar(bar++).telemetry.find((t) => t.type === 'status').response);
+  assert.ok(responses.includes('defend'), `defended at the start of the silence: ${responses}`);
+  assert.equal(responses.at(-1), 'normal', `back to its own mood after the phrase: ${responses}`);
   assert.deepEqual(a.inspect().flagged, ['poetB'], 'sticky through the cut');
-  assert.equal(a.planBar(bar++).telemetry.find((t) => t.type === 'status').response, 'defend');
   a.resetFlags();
   assert.deepEqual(a.inspect().flagged, []);
 });

@@ -80,7 +80,8 @@ Any agent can be corrupted (`rt.setRogue(id, true)`), not just Pulse. **It corru
 - **"Fixing it" (Role 2 decides, Roles 3 and 4 render).** Once an agent is flagged, **exactly one honest agent covers its job**: the first agent after it in the order eyeA → poetA → eyeB → poetB that the deciding agent considers honest. Every agent applies the rule on its own; there's no coordinator.
   - The coverer gets `compose({... cover: 'architect'|'melodist'|'weaver'|'pulse' })`. **Role 3** adds a minimal, in-scale version of that job, e.g. covering the Architect with a D/A pedal.
   - Its `status` telemetry carries `covering: role`, so **Role 4** can show that agent's brush repairing the corrupted layer (kintsugi on that layer).
-  - Absorb (all honest agents) and defend still apply as before.
+  - Absorb (all honest agents) still applies. **Defend is a phrase:** when silence begins with a saboteur flagged, agents play the D/A defend theme for `DETECT.defendBars` (4) bars, then return to their own mood. The flag holds and the job stays covered. Before this change, defend lasted the whole Void, and the mood vanished from the Melodist's and Weaver's music.
+  - **Switching corruption off** (`rt.setRogue(id, false)`) clears every agent's flags (`rt.clearFlags()`). Otherwise the redeemed agent stays distrusted and covered for the rest of the run.
 - **Measured** (`tests/corruption.test.mjs`): every agent, corrupted in its own job, is caught within 4 bars with 0 false flags; exactly one honest agent covers it. Role 3's honest composer played no E♭/G♯ in 13,689 notes.
 - **Known limit:** at 90% message loss, with honest agents answering Melkor every bar, 1 run in 30 had an honest agent flagged. An agent that has heard nothing from anyone may flag on its own evidence alone.
 
