@@ -44,6 +44,7 @@ export const DETECT = {
   count: 4,
   countWindowBars: 8,
   silenceBars: 2, // nothing heard for this long => "silent"
+  defendBars: 4, // length of the defend phrase once silence begins (then back to my own mood)
   suspicionTtlBars: 4, // a peer's suspect message counts for this long
   roguePcWindowBars: 3, // absorb uses rogue pitch classes from the last N bars
 };
@@ -346,8 +347,14 @@ export function createAgent({
     let response = 'normal';
     if (flaggedPeers.length > 0) {
       if (barsSilent >= DETECT.silenceBars) {
-        defend = true;
-        response = 'defend';
+        // Defend is a PHRASE, not a state: the defiant D/A theme for DETECT.defendBars bars when the
+        // silence begins, then back to playing my own mood (the saboteur stays flagged, its job
+        // stays covered). Defending forever would erase the mood from the music after the cut,
+        // which is exactly what the cut is meant to show survives.
+        if (barsSilent < DETECT.silenceBars + DETECT.defendBars) {
+          defend = true;
+          response = 'defend';
+        }
       } else {
         const pcs = new Set();
         for (const p of flaggedPeers) {

@@ -251,6 +251,14 @@ export async function createRuntime({ seed = 0, leadMs = START_LEAD_MS, agentHos
     },
     setRogue(id, on) {
       toAgent(id, { cmd: 'setRogue', on: !!on });
+      // Switching corruption OFF redeems the agent: clear every agent's sticky flags, or the
+      // others keep distrusting it (and covering its job) for the rest of the run. Flags still
+      // survive the cut as long as the saboteur stays corrupted.
+      if (!on) rt.clearFlags();
+    },
+    /** Experimenter: forget every rogue verdict (Restore does this too, along with loss 0). */
+    clearFlags() {
+      for (const aid of AGENT_IDS) toAgent(aid, { cmd: 'resetFlags' });
     },
     setBaseline(on) {
       for (const id of AGENT_IDS) toAgent(id, { cmd: 'setBaseline', on: !!on });
