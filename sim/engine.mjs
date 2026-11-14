@@ -5,12 +5,13 @@
 // Protocol per run (mirrors the demo):
 //   bars [0, EVENT_BAR)  "Halls": loss 0, rogue off (baseline followers hear the leader)
 //   bars [EVENT_BAR, ..) "Void"/attack: loss = p; rogue (if on) is corrupted at EVENT_BAR
-// Metrics are measured over bars >= EVENT_BAR only.
+// Metrics are measured over bars >= EVENT_BAR only, by web/metrics.js: the SAME code that
+// computes the Stage's live metrics panel, fed the same telemetry the Stage receives.
 
 import { createAgent, AGENT_IDS } from '../web/core/agent.js';
 import { mulberry32, seedFor } from '../web/core/rng.js';
 import { BARS_PER_SCENE } from '../web/core/time.js';
-import { SCALES, relPc, absPc } from '../web/core/theory.js';
+import { createMetrics } from '../web/metrics.js';
 
 export const ROGUE_ID = 'poetB';
 export const EVENT_BAR = 16;
@@ -35,23 +36,8 @@ export function runOne({ data, scenes, method, loss, rogue, seed, eventBar = EVE
   }
   const netRng = Object.fromEntries(AGENT_IDS.map((id) => [id, mulberry32(seedFor(`simnet:${id}`, seed))]));
 
-  const m = {
-    bars: 0,
-    agentBars: 0,
-    correct: 0,
-    modeCorrect: 0,
-    agreePairs: 0,
-    pairs: 0,
-    notes: 0,
-    consonant: 0,
-    ghosts: 0,
-    ghostHits: 0,
-    detectFirst: null,
-    detectAll: null,
-    falsePositives: 0,
-    delivered: 0,
-  };
-  const fpSeen = new Set();
+  const metrics = createMetrics();
+  let delivered = 0;
   let pending = [];
 
   for (let s = 0; s < scenes.length; s++) {
@@ -69,7 +55,7 @@ export function runOne({ data, scenes, method, loss, rogue, seed, eventBar = EVE
           if (a.id === from) continue;
           if (netRng[a.id]() < p) continue;
           a.onPeer(msg);
-          m.delivered++;
+          delivered++;
         }
       }
       pending = [];
@@ -79,92 +65,23 @@ export function runOne({ data, scenes, method, loss, rogue, seed, eventBar = EVE
         plans[a.id] = a.planBar(bar);
         for (const msg of plans[a.id].outbox) pending.push({ from: a.id, msg });
       }
-      if (bar < eventBar) continue;
-
-      const honest = AGENT_IDS.filter((id) => !(rogue && id === ROGUE_ID));
-      const ctxOf = (id) => plans[id].telemetry.find((t) => t.type === 'ctx');
-      const truth = scene.truth;
-      m.bars++;
-
-      // Accuracy vs truth and agreement among honest agents.
-      for (const id of honest) {
-        const c = ctxOf(id);
-        m.agentBars++;
-        if (c.mode === truth.mode) m.modeCorrect++;
-        if (c.mode === truth.mode && c.density === truth.density) m.correct++;
-      }
-      for (let i = 0; i < honest.length; i++) {
-        for (let j = i + 1; j < honest.length; j++) {
-          const a = ctxOf(honest[i]);
-          const b = ctxOf(honest[j]);
-          m.pairs++;
-          if (a.mode === b.mode && a.density === b.density) m.agreePairs++;
-        }
-      }
-
-      // Consonance: share of ALL sounding notes inside the honest majority's scale.
-      const votes = {};
-      for (const id of honest) votes[ctxOf(id).mode] = (votes[ctxOf(id).mode] ?? 0) + 1;
-      const majority = Object.entries(votes).sort((x, y) => y[1] - x[1])[0][0];
-      for (const id of AGENT_IDS) {
-        for (const n of plans[id].notes) {
-          m.notes++;
-          if (SCALES[majority].includes(relPc(n.pitch))) m.consonant++;
-        }
-      }
-
-      // Ghost (peer-model prediction) match: did the peer play that pitch class in that slot?
-      for (const id of honest) {
-        for (const g of plans[id].telemetry) {
-          if (g.type !== 'ghost') continue;
-          m.ghosts++;
-          const slot = Math.floor(g.beat * 2);
-          const hit = plans[g.about].notes.some(
-            (n) => Math.floor(n.beat * 2) === slot && absPc(n.pitch) === absPc(g.pitch),
-          );
-          if (hit) m.ghostHits++;
-        }
-      }
-
-      // Detection latency and false positives.
-      const flaggedBy = {};
-      for (const id of honest) {
-        const st = plans[id].telemetry.find((t) => t.type === 'status');
-        flaggedBy[id] = st.flagged;
-        for (const f of st.flagged) {
-          if (rogue && f === ROGUE_ID) continue;
-          const key = `${id}>${f}`;
-          if (!fpSeen.has(key)) {
-            fpSeen.add(key);
-            m.falsePositives++;
-          }
-        }
-      }
-      if (rogue) {
-        const n = honest.filter((id) => flaggedBy[id].includes(ROGUE_ID)).length;
-        if (n > 0 && m.detectFirst === null) m.detectFirst = bar - eventBar;
-        if (n === honest.length && m.detectAll === null) m.detectAll = bar - eventBar;
+      // Replay exactly the telemetry the Stage would receive into the shared metrics module.
+      if (bar === start) metrics.ingest({ type: 'scene', index: s, bar: start, id: scene.id, truth: scene.truth });
+      for (const a of agents) {
+        for (const n of plans[a.id].notes) metrics.ingest({ type: 'note', ...n });
+        for (const t of plans[a.id].telemetry) metrics.ingest(t);
       }
     }
   }
+  metrics.flush();
 
-  const r = (a, b) => (b > 0 ? a / b : null);
   return {
     method,
     loss,
     rogue: rogue ? 1 : 0,
     seed,
-    bars: m.bars,
-    accuracy: r(m.correct, m.agentBars),
-    mode_accuracy: r(m.modeCorrect, m.agentBars),
-    agreement: r(m.agreePairs, m.pairs),
-    consonance: r(m.consonant, m.notes),
-    prediction_match: r(m.ghostHits, m.ghosts),
-    ghosts: m.ghosts,
-    detect_first_bars: m.detectFirst,
-    detect_all_bars: m.detectAll,
-    false_positive_flags: m.falsePositives,
-    delivered: m.delivered,
+    ...metrics.summary({ fromBar: eventBar }),
+    delivered,
   };
 }
 
