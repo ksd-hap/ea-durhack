@@ -4,7 +4,11 @@ import { readFileSync } from 'node:fs';
 import { compose } from '../web/core/compose.js';
 import { mulberry32, seedFor } from '../web/core/rng.js';
 import {
-  SCALES, relPc, absPc, inScale, isOutsideUnion,
+  SCALES,
+  relPc,
+  absPc,
+  inScale,
+  isOutsideUnion,
 } from '../web/core/theory.js';
 import { runOne } from '../sim/engine.mjs';
 
@@ -18,7 +22,6 @@ const RANGES = {
   pulse: [74, 86],
 };
 
-// Expected harmony from the build plan.
 const CHORDS = {
   ionian: [[2, 6, 9], [11, 2, 6], [7, 11, 2], [9, 1, 4]],
   dorian: [[2, 5, 9], [7, 11, 2], [0, 4, 7], [2, 5, 9]],
@@ -50,6 +53,7 @@ function freeze(value) {
     Object.values(value).forEach(freeze);
     Object.freeze(value);
   }
+
   return value;
 }
 
@@ -339,6 +343,7 @@ test('every voice answers Eb/E7 and then resolves to A', () => {
           if (role === 'architect' && n.pitch === 38) {
             continue;
           }
+
           assert(chord.includes(absPc(n.pitch)));
         }
 
@@ -466,20 +471,32 @@ test('defence strengthens Architect and simplifies the other honest voices', () 
   }
 });
 
-test('Melkor keeps its rogue notes despite response inputs', () => {
+test('corrupted Pulse keeps its own register despite response inputs', () => {
   const out = play('pulse', {
     rogue: true,
     defend: true,
     absorb: { pcs: [3] },
   });
 
-  assert.equal(out.notes.length, 2);
-  assert.equal(new Set(out.notes.map((n) => n.beat)).size, 2);
+  assert(out.notes.length >= 2);
+
+  assert.equal(
+    new Set(out.notes.map((n) => n.beat)).size,
+    out.notes.length,
+  );
 
   assert(
     out.notes.every(
-      (n) => [68, 75].includes(n.pitch) && n.vel === 0.9,
+      (n) =>
+        Number.isInteger(n.pitch) &&
+        n.pitch >= 74 &&
+        n.pitch <= 86,
     ),
+  );
+
+  assert(
+    out.notes.filter((n) => isOutsideUnion(n.pitch)).length >=
+      Math.ceil(out.notes.length / 2),
   );
 });
 

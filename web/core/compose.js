@@ -1,44 +1,15 @@
 // compose.js — pure music logic. [Role 3]
-// All four voices, absorption and defence.
+// Four voices, corruption, covering, absorption and defence.
 //
 // Contract:
 // compose({ id, role, bar, ctx, state, rng, predictions,
-//           lastBarNotes, absorb, defend, rogue })
+//           lastBarNotes, absorb, defend, rogue, cover })
 // returns { notes: [{ beat, pitch, dur, vel }], state }.
-//   compose({
-//     id,            // 'eyeA' | 'poetA' | 'eyeB' | 'poetB'
-//     role,          // 'architect' | 'melodist' | 'weaver' | 'pulse'
-//     bar,           // the bar being planned (integer, bar 0 = t0). Chord slot = floor((bar % 8) / 2)
-//     ctx,           // { mode: 'ionian'|'dorian'|'aeolian', density: 1|2|3 } — this agent's OWN context
-//     state,         // the `state` this function returned last bar ({} on the first call). Treat as
-//                    // read-only and return a new object (motif, previous voicing, previous notes...).
-//     rng,           // seeded () => [0,1) owned by this agent. The ONLY source of randomness.
-//     predictions,   // [{ peer, role, bar, slot, beat, pc, pitch, count }] peer-model guesses for THIS bar
-//                    //   slot = eighth-note slot 0..7, beat = slot / 2, pc = absolute pitch class (C = 0)
-//     lastBarNotes,  // NoteEvents received from peers for bar - 1 (collision avoidance)
-//     absorb,        // null | { pcs: [absolute pitch classes] } e.g. 3 = Eb, 8 = G#: rogue flagged, comms up
-//                    //   Honest notes may use Eb/G# (outside all three modes) ONLY here, and only
-//                    //   the pcs listed: Eb major answers Eb, E7 answers G#. Anything else outside
-//                    //   the modes is indistinguishable from Melkor and gets this agent flagged.
-//     defend,        // boolean: rogue flagged and nothing heard for 2 bars
-//     rogue,         // boolean: THIS agent is Melkor. Corrupt YOUR OWN job: your register,
-//                    //   rhythm and role (a corrupted Architect poisons the drone/pads, a corrupted
-//                    //   Weaver the inner voices...), using Eb/G# for at least half of its notes and
-//                    //   at least 2 notes per bar, so the others can catch it within ~3 bars.
-//     cover,         // null | 'architect'|'melodist'|'weaver'|'pulse': a peer with that job was
-//                    //   flagged and I'm the honest agent chosen to cover it. Add a minimal, in-scale
-//                    //   version of that job (e.g. covering the Architect: a D/A pedal) on top of mine.
-//   }) -> {
-//     notes: [{ beat, pitch, dur, vel }],   // beat 0-based in [0,4) (musical beats 1 and 3 = 0 and 2),
-//                                           // pitch MIDI (D4 = 62), dur in beats > 0, vel in (0,1]
-//     state,                                // the new state, handed back next bar
-//   }
 //
-// Beats are zero-based. Durations are beats. Pitches are MIDI.
-// The wrapper adds from, bar, at, role and rogue.
+// Beats start at 0. Durations are beats. Pitches are MIDI.
 // Never mutate input state. Use only the supplied rng.
 // No audio, timers, networking or browser dependencies.
-// Honest Eb/G# notes require permission in CURRENT absorb.pcs.
+// Honest Eb/G# notes require current absorb.pcs permission.
 
 import {
   SCALES,
@@ -48,25 +19,26 @@ import {
 } from './theory.js';
 
 import { planResponse } from './response.js';
+import { corruptPart, coverPart } from './parts.js';
 
 const PROGRESSIONS = {
   ionian: [
-    [2, 6, 9],   // D
-    [11, 2, 6],  // Bm
-    [7, 11, 2],  // G
-    [9, 1, 4],   // A
+    [2, 6, 9],
+    [11, 2, 6],
+    [7, 11, 2],
+    [9, 1, 4],
   ],
   dorian: [
-    [2, 5, 9],   // Dm
-    [7, 11, 2],  // G
-    [0, 4, 7],   // C
-    [2, 5, 9],   // Dm
+    [2, 5, 9],
+    [7, 11, 2],
+    [0, 4, 7],
+    [2, 5, 9],
   ],
   aeolian: [
-    [2, 5, 9],   // Dm
-    [10, 2, 5],  // Bb
-    [5, 9, 0],   // F
-    [0, 4, 7],   // C
+    [2, 5, 9],
+    [10, 2, 5],
+    [5, 9, 0],
+    [0, 4, 7],
   ],
 };
 
@@ -111,7 +83,6 @@ function choosePadVoicing(chord, previous = [50, 54, 57]) {
     }
   }
 
-  // Also supports four-note E7 and filtered response chords.
   const count = chord.length;
   let best = pool.slice(0, count);
   let bestScore = Infinity;
@@ -403,7 +374,6 @@ function composeArchitect({
 
     const padPitches = [...padVoicing];
 
-    // Answering chords use their stated chord tones.
     if (ctx.density === 3 && !harmony.chord) {
       const ninthPc = (chord[0] + 2) % 12;
 
@@ -440,8 +410,6 @@ function composeArchitect({
       });
     }
   } else if (defend && !state.defending) {
-    // Add the defensive drone immediately on an odd bar.
-    // Boost pad velocity on the next normal chord attack.
     if (!state.padVoicing) {
       notes.push({
         beat: 0, pitch: 38, dur: 4, vel: 0.35,
@@ -512,34 +480,6 @@ function composePulse({
   };
 }
 
-function composeRogue({ bar, state, rng }) {
-  const beats = [0, 1, 2, 3];
-
-  for (let i = beats.length - 1; i > 0; i--) {
-    const j = Math.floor(rng() * (i + 1));
-    [beats[i], beats[j]] = [beats[j], beats[i]];
-  }
-
-  const notes = beats
-    .slice(0, 2)
-    .sort((a, b) => a - b)
-    .map((beat) => ({
-      beat,
-      pitch: rng() < 0.5 ? 75 : 68,
-      dur: 0.5,
-      vel: 0.9,
-    }));
-
-  return {
-    notes,
-    state: {
-      ...state,
-      lastBar: bar,
-      prevNotes: notes.map((note) => note.pitch),
-    },
-  };
-}
-
 export function compose({
   role,
   bar,
@@ -549,11 +489,37 @@ export function compose({
   rogue = false,
   defend = false,
   absorb = null,
+  cover = null,
   predictions = [],
   lastBarNotes = [],
 }) {
   if (rogue) {
-    return composeRogue({ bar, state, rng });
+    // Generate this agent's own part, then poison its notes.
+    const normal = compose({
+      role,
+      bar,
+      ctx,
+      rng,
+      predictions,
+      lastBarNotes,
+      state: {
+        ...state,
+        harmony: {},
+        defending: false,
+      },
+      rogue: false,
+      defend: false,
+      absorb: null,
+      cover: null,
+    });
+
+    return corruptPart({
+      role,
+      ctx,
+      bar,
+      state: normal.state,
+      notes: normal.notes,
+    });
   }
 
   const harmony = planResponse({
@@ -599,15 +565,19 @@ export function compose({
       throw new Error(`Unknown musical role: ${role}`);
   }
 
-  // Remembering an old response does not authorise
-  // a new Eb/G# note without current permission.
+  const combined = cover && cover !== role
+    ? [...result.notes, ...coverPart(cover)]
+    : result.notes;
+
   const allowedOutside = new Set(absorb?.pcs ?? []);
 
-  const notes = result.notes.filter(
-    (note) =>
-      !isOutsideUnion(note.pitch) ||
-      allowedOutside.has(absPc(note.pitch)),
-  );
+  const notes = combined
+    .filter(
+      (note) =>
+        !isOutsideUnion(note.pitch) ||
+        allowedOutside.has(absPc(note.pitch)),
+    )
+    .sort((a, b) => a.beat - b.beat);
 
   return {
     notes,
@@ -617,4 +587,3 @@ export function compose({
     },
   };
 }
-
