@@ -68,6 +68,7 @@ async function init({ id: myId, seed = 0, session }) {
     params: data.agents[id],
     anchors: data.anchors,
     thresholds: data.thresholds,
+    fusion: data.fusion ?? null,
     seed,
   });
   telemetry = createTelemetrySender(session);

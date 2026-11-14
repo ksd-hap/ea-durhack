@@ -67,7 +67,25 @@ def main():
         agents[ag] = {"dim": int(X[ag].shape[1]), "mu": r5(f[f"{ag}_mu"]).tolist(), "W": r5(f[f"{ag}_W"]).tolist(),
                       "R": r5(f[f"{ag}_R"]).tolist(), "R_random": r5(f[f"{ag}_R_random"]).tolist(),
                       **st["fitted"], "stats_by_method": st}
+    # Belief sharing: an agent fuses its standardised (valence, arousal) with the peers' it heard,
+    # f = mean over the subset. Averaging shrinks the spread, so f is rescaled by the std of that
+    # subset's mean on CALIBRATION scenes. One factor pair per subset of agents, per method.
+    fusion = {}
+    cal = np.array([r["split"] == "calibration" for r in rows])
+    for method, key in (("fitted", "R"), ("random", "R_random")):
+        S = []
+        for ag in AGENTS:
+            Z = ((X[ag][cal] - f[f"{ag}_mu"]) @ f[f"{ag}_W"]) @ f[f"{ag}_{key}"]
+            v, a = scores(Z, {p: f[f"anchor_{p}"] for p in anchors})
+            st = meta["stats"][ag][method]
+            S.append(np.stack([(v - st["val_mean"]) / st["val_std"], (a - st["aro_mean"]) / st["aro_std"]], -1))
+        S = np.stack(S, 1)  # (n_cal, 4, 2)
+        fusion[method] = {}
+        for mask in range(1, 16):
+            sub = [i for i in range(4) if mask >> i & 1]
+            fusion[method]["+".join(AGENTS[i] for i in sub)] = [round(float(x), DEC) for x in S[:, sub].mean(1).std(0)]
     agents_json = {"k": K, "anchors": {p: m.tolist() for p, m in anchors.items()}, "agents": agents, "thresholds": th,
+                   "fusion": fusion,
                    "source": {"method": "procrustes", "k": meta["k"], "seed": SEED, "models": MODELS}}
     save_json(ROOT / "web/data/agents.json", agents_json)
 
