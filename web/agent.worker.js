@@ -87,8 +87,13 @@ async function init({ id: myId, seed = 0 }) {
   hub.onmessage = (ev) => {
     const h = ev.data ?? {};
     if (h.type === 'start') {
-      t0 = h.t0;
-      lastPlanned = null;
+      // The hub repeats 'start' until we acknowledge, so it must be idempotent:
+      // only a NEW t0 resets the bar loop (a repeat must not re-plan a bar).
+      if (h.t0 !== t0) {
+        t0 = h.t0;
+        lastPlanned = null;
+      }
+      telemetry.send({ type: 'started', from: id, t0 });
     } else if (h.type === 'useRandomRotation') {
       agent.setRandomRotation(!!h.on);
     } else if (h.type === 'end') {

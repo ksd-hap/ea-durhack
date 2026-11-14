@@ -5,13 +5,15 @@
 //
 //   const rt = await createRuntime({ seed: 0 });
 //   rt.onTelemetry(msg => ...);     // every ea-telemetry message (notes, ctx, ghost, status, rx, scene)
-//   const t0 = rt.start();          // hub: bar 0 starts at t0 = now + 2000 ms
+//   const t0 = rt.start();          // hub: bar 0 starts at t0 = now + START_LEAD_MS (5 s)
+//   await rt.started;               // resolves once all 4 agents + world acknowledged start
 //   rt.setRandomRotation(true);     // rehearsal only; returns false once the hub is closed
 //   rt.endRehearsal();              // closes ea-hub for good
 //   rt.setLoss(0.5); rt.cut(); rt.restore();
 //   rt.setRogue('poetB', true); rt.setBaseline(true);
 
 import { AGENT_IDS } from './core/agent.js';
+import { START_LEAD_MS, BAR_MS } from './core/time.js';
 
 const now = () => performance.timeOrigin + performance.now();
 
@@ -28,7 +30,8 @@ function spawn(url, initMsg, label) {
   return { worker: w, ready };
 }
 
-export async function createRuntime({ seed = 0, leadMs = 2000 } = {}) {
+export async function createRuntime({ seed = 0, leadMs = START_LEAD_MS } = {}) {
+  if (leadMs <= BAR_MS) console.warn(`runtime: leadMs ${leadMs} is under one bar; bar 0 may play the default mood`);
   const telemetry = new BroadcastChannel('ea-telemetry');
   const netem = new BroadcastChannel('ea-netem');
   let hub = new BroadcastChannel('ea-hub');
@@ -69,12 +72,43 @@ export async function createRuntime({ seed = 0, leadMs = 2000 } = {}) {
       listeners.add(fn);
       return () => listeners.delete(fn);
     },
+    /**
+     * Hub start. A single broadcast can be lost (a worker's channel may still be registering),
+     * so we repeat it every 200 ms until every agent and the world acknowledge with
+     * {type:'started', t0} on telemetry, or until bar 0 begins. Returns t0; rt.started
+     * resolves with t0 once all have acknowledged, or rejects naming the ones that didn't.
+     */
     start() {
       if (!hub) throw new Error('start: the hub is closed (reload to start again)');
-      t0 = now() + leadMs;
-      hub.postMessage({ type: 'start', t0 });
-      return t0;
+      const myT0 = (t0 = now() + leadMs);
+      const waiting = new Set([...AGENT_IDS, 'world']);
+      let timer = null;
+      let off = null;
+      rt.started = new Promise((resolve, reject) => {
+        const finish = (err) => {
+          clearInterval(timer);
+          off();
+          if (err) reject(err);
+          else resolve(myT0);
+        };
+        off = rt.onTelemetry((m) => {
+          if (m?.type === 'started' && m.t0 === myT0 && waiting.delete(m.from) && waiting.size === 0) finish();
+        });
+        const send = () => {
+          if (!hub || t0 !== myT0) return finish(new Error('start superseded or hub closed'));
+          if (now() >= myT0) {
+            console.error(`runtime: no start acknowledgement from ${[...waiting].join(', ')}`);
+            return finish(new Error(`not started: ${[...waiting].join(', ')}`));
+          }
+          hub.postMessage({ type: 'start', t0: myT0 });
+        };
+        send();
+        timer = setInterval(send, 200);
+      });
+      rt.started.catch(() => {}); // callers may ignore it; never an unhandled rejection
+      return myT0;
     },
+    started: null,
     setRandomRotation(on) {
       if (!hub) return false;
       hub.postMessage({ type: 'useRandomRotation', on: !!on });

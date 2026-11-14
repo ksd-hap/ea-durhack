@@ -9,7 +9,8 @@ Items marked **[PROPOSED by Role 2]** fill gaps in the plan. Please ack or objec
 - A scene is 8 bars, and the chord changes every 2 bars: `chord = floor((bar % 8) / 2)`.
 - One bar lasts 3333.33 ms.
 - Context is `{ mode: 'ionian'|'dorian'|'aeolian', density: 1|2|3 }`. Valence sets the mode: high is ionian, mid is dorian, low is aeolian. Arousal sets the density: low is 1, high is 3.
-- `beat` is **0-based** in [0, 4). **[PROPOSED]**
+- `beat` is **0-based** in [0, 4). **[AGREED with Role 3]**
+- Start: the hub sets `t0 = now + 5000 ms` (`START_LEAD_MS` = 1.5 bars in `web/core/time.js`), **not** the plan's 2000 ms. Agents plan bar 0 one bar early, at `t0 - 3333 ms`. With a 2000 ms lead that moment has already passed when Start is pressed, so it raced the world's first views: in 5 of 6 browser trials at least one agent played bar 0 in the default mood. A lead of more than one bar removes the race. **[PROPOSED by Role 2]**
 
 ## Data files (Role 1 writes; fakes from `tools/make_fake_data.py` until then)
 | File | Shape |
@@ -29,8 +30,8 @@ Perception maths (`web/core/perception.js`, which must match NumPy to 1e-4):
 ## Channels (BroadcastChannel)
 | Channel | Direction | Messages | Cut? |
 |---|---|---|---|
-| `ea-sense-<id>` | world → one agent | `{type:'view', bar, vec}` | never |
-| `ea-hub` | hub → agents and world, rehearsal only | `{type:'start', t0}`, `{type:'useRandomRotation', on}`, `{type:'end'}` **[PROPOSED: end]** | closed at end of rehearsal or on Cut |
+| `ea-sense-<id>` | world → one agent | `{type:'view', bar, vec}`, sent 2 bars before the scene starts and **re-sent every bar** (same bar gives the same context, so it's idempotent) **[PROPOSED]** | never |
+| `ea-hub` | hub → agents and world, rehearsal only | `{type:'start', t0}` (**repeated every 200 ms until acknowledged**; only a new `t0` restarts anything) **[PROPOSED]**, `{type:'useRandomRotation', on}`, `{type:'end'}` **[PROPOSED: end]** | closed at end of rehearsal or on Cut |
 | `ea-net` | agent ↔ agent | `{type:'note', ...NoteEvent}`, `{type:'suspect', from, target, score, suspect, bar}`, `{type:'lead', from, bar, mode, density}` (baseline only) **[PROPOSED: suspect/bar fields, lead]** | yes (loss slider, Cut) |
 | `ea-netem` | experimenter → transport | `{type:'loss', p}` | never; agent logic never sees it |
 | `ea-telemetry` | agents and world → Stage, one way | see below | never; agents never subscribe |
@@ -51,6 +52,7 @@ Agents plan bar n+1 while bar n sounds. Audio converts once: `offset = ctx.curre
 | `status` | `from, bar, rogue, baseline, randomRotation, response:'normal'\|'absorb'\|'defend', suspected:[ids], flagged:[ids], barsSilent` **[PROPOSED]** | each agent, every bar |
 | `rx` | `from, count, dropped, total, loss` (count and dropped are per 1 s interval) | transport, every 1 s |
 | `scene` | `index, bar, id, truth, thumb, caption` **[PROPOSED]** | world, when a scene starts |
+| `started` | `from, t0` (from is an agent id or `'world'`) **[PROPOSED]** | each agent and the world, on every `start` they receive |
 
 ## Main thread → agent worker (fault injection only)
 `{cmd:'init', id, seed}`, `{cmd:'setRogue', on}`, `{cmd:'setBaseline', on}`, `{cmd:'resetFlags'}` **[PROPOSED: resetFlags, sent by Restore]**. Never musical information. Enforced by `tools/check_isolation.sh`.
@@ -82,6 +84,9 @@ A worked example lives in `web/core/compose.example.json`, and `tests/compose.co
 ## Runtime API for the Stage (`web/runtime.js`, Role 2)
 ```js
 const rt = await createRuntime({ seed });
-rt.onTelemetry(fn); rt.start(); rt.endRehearsal(); rt.setRandomRotation(on);
+rt.onTelemetry(fn); const t0 = rt.start(); await rt.started; // resolves when all 4 agents + world acknowledged
+rt.endRehearsal(); rt.setRandomRotation(on);
 rt.setLoss(p); rt.cut(); rt.restore(); rt.setRogue('poetB', on); rt.setBaseline(on);
 ```
+
+**Only one Stage tab per machine.** Channel names are shared by every tab on the same origin, so a second Stage tab's hub would steer the first tab's agents.
