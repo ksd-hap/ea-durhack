@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>EÄ phone check</title>
+  <style>
+    :root { color-scheme: dark; }
+    html, body { margin: 0; background: #0b0b10; color: #e8e4da; font: 16px/1.45 -apple-system, system-ui, sans-serif; }
+    main { max-width: 520px; margin: 0 auto; padding: max(16px, env(safe-area-inset-top)) 16px 32px; }
+    h1 { font-size: 22px; margin: 4px 0 2px; }
+    .sub { color: #8a8698; font-size: 13px; margin-bottom: 14px; }
+    button { width: 100%; padding: 18px; font: 600 18px/1 inherit; border-radius: 14px; border: 0; background: #d9b45a; color: #1a1408; }
+    button:disabled { opacity: .5; }
+    ul { list-style: none; padding: 0; margin: 16px 0; }
+    li { display: flex; gap: 10px; padding: 10px 0; border-bottom: 1px solid #22222c; }
+    li .ic { width: 22px; flex: none; text-align: center; }
+    li .tx { flex: 1; } li small { display: block; color: #8a8698; }
+    .ok { color: #6cc28a; } .bad { color: #e66; } .wait { color: #ec6; }
+    #beat { margin: 18px auto 6px; width: 140px; height: 140px; border-radius: 50%; background: #22222c; transition: background 60ms; }
+    #beat.on { background: #d9b45a; }
+    #beatinfo { text-align: center; color: #8a8698; font-size: 13px; }
+    label { display: flex; align-items: center; gap: 8px; justify-content: center; margin-top: 8px; color: #8a8698; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>EÄ phone check</h1>
+    <div class="sub" id="device"></div>
+    <button id="go">Tap to run the check</button>
+    <ul id="results"></ul>
+    <div id="beat"></div>
+    <div id="beatinfo">Shared 72 BPM beat: put all four phones side by side.<br>The flashes (and clicks) should land together.</div>
+    <label><input type="checkbox" id="click" checked> click on every beat</label>
+  </main>
+  <script type="module" src="phone-check.js"></script>
+</body>
+</html>

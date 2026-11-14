@@ -2,7 +2,8 @@
 //
 // ============================== ISOLATION RULE ==============================
 // The main thread may send this worker ONLY these messages:
-//   {cmd:'init', id, seed, session}  which agent to be, and which run's channels to join
+//   {cmd:'init', id, seed, session, relay?}  which agent to be, which run's channels to join,
+//                               and (phones) the relay URL to reach the other devices through
 //   {cmd:'setRogue', on}        experimenter fault injection: become Melkor
 //   {cmd:'setBaseline', on}     experimenter switch: conductor-baseline comparison mode
 //   {cmd:'resetFlags'}          experimenter pressed Restore: clear sticky rogue flags
@@ -16,7 +17,8 @@ import { createAgent } from './core/agent.js';
 import { barAt } from './core/time.js';
 import { createTransport } from './transport.js';
 import { createTelemetrySender } from './telemetry-out.js';
-import { CHANNEL, openChannel } from './channels.js';
+import { CHANNEL, openChannel, useRelay } from './channels.js';
+import { now } from './clock.js';
 
 const TICK_MS = 50;
 
@@ -30,7 +32,6 @@ let t0 = null;
 let lastPlanned = null;
 let timer = null;
 
-const now = () => performance.timeOrigin + performance.now();
 
 self.onmessage = async (e) => {
   const m = e.data ?? {};
@@ -57,9 +58,16 @@ self.onmessage = async (e) => {
   }
 };
 
-async function init({ id: myId, seed = 0, session }) {
+async function init({ id: myId, seed = 0, session, relay = null }) {
   if (agent) return;
   id = myId;
+  if (relay) {
+    // Phones: channels go through the laptop's relay, and the clock syncs to the laptop's.
+    const { connectRelay } = await import('./relay-client.js');
+    const r = connectRelay(relay, { label: `agent ${id}` });
+    useRelay(r);
+    await r.ready;
+  }
   const res = await fetch(new URL('./data/agents.json', import.meta.url));
   if (!res.ok) throw new Error(`agents.json: HTTP ${res.status}`);
   const data = await res.json();
