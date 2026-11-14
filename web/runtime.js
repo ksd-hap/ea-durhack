@@ -11,11 +11,109 @@
 //   rt.endRehearsal();              // closes ea-hub for good
 //   rt.setLoss(0.5); rt.cut(); rt.restore();
 //   rt.setRogue('poetB', true); rt.setBaseline(true);
+//
+// Agent hosts:
+//   agentHost: 'workers' (default)  all four agent Workers live in this page (the plan's design).
+//   agentHost: 'windows'            each agent runs in its own window (web/agent.html?id=...),
+//                                   found over 'ea-control'. This page keeps only the world.
+//     rt.openAgentWindow(id)        open one agent window, tiled (call from a click: popup rules)
+//     rt.presence()                 -> { eyeA: true, ... } windows seen in the last 3 s
+//     rt.onPresence(fn)             called with presence() whenever it changes
+//     await rt.agentsReady          resolves once all four windows are present
+//   Open the windows BEFORE Start: a window opened after Start never receives t0.
 
 import { AGENT_IDS } from './core/agent.js';
 import { START_LEAD_MS, BAR_MS } from './core/time.js';
 
 const now = () => performance.timeOrigin + performance.now();
+
+// Experimenter fault-injection switches: the ONLY things ever sent to an agent host.
+const AGENT_CMDS = new Set(['setRogue', 'setBaseline', 'resetFlags']);
+const PRESENCE_TTL_MS = 3000;
+const PING_MS = 1000;
+
+function workerHost(seed) {
+  // Agent windows left open from a windows-mode run would ALSO obey this page's hub
+  // (same origin, same channels), so two copies of an agent would play. Detect and shout.
+  const probe = new BroadcastChannel('ea-control');
+  const strays = new Set();
+  probe.onmessage = (e) => {
+    if (e.data?.type === 'present' && !strays.has(e.data.id)) {
+      strays.add(e.data.id);
+      console.error(`runtime: agent window "${e.data.id}" is open; close all agent windows before using workers mode`);
+    }
+  };
+  probe.postMessage({ type: 'ping' });
+  const probeTimer = setInterval(() => probe.postMessage({ type: 'ping' }), PING_MS);
+  const workers = {};
+  const ready = Promise.all(
+    AGENT_IDS.map((id) => {
+      const s = spawn(new URL('./agent.worker.js', import.meta.url), { cmd: 'init', id, seed }, id);
+      workers[id] = s.worker;
+      return s.ready;
+    }),
+  );
+  return {
+    ready,
+    presence: () => Object.fromEntries(AGENT_IDS.map((id) => [id, true])),
+    onPresence: () => () => {},
+    strayWindows: () => [...strays],
+    send(id, msg) {
+      workers[id].postMessage(msg);
+    },
+    close() {
+      clearInterval(probeTimer);
+      probe.close();
+      for (const w of Object.values(workers)) w.terminate();
+    },
+  };
+}
+
+function windowHost() {
+  const ctl = new BroadcastChannel('ea-control');
+  const lastSeen = {};
+  const fns = new Set();
+  let resolveReady;
+  const ready = new Promise((r) => (resolveReady = r));
+  const presence = () => Object.fromEntries(AGENT_IDS.map((id) => [id, now() - (lastSeen[id] ?? -Infinity) < PRESENCE_TTL_MS]));
+  let last = JSON.stringify(presence());
+  const check = () => {
+    const p = presence();
+    const s = JSON.stringify(p);
+    if (s !== last) {
+      last = s;
+      for (const fn of fns) fn(p);
+    }
+    if (AGENT_IDS.every((id) => p[id])) resolveReady();
+  };
+  ctl.onmessage = (e) => {
+    const m = e.data ?? {};
+    if (m.type === 'present' && AGENT_IDS.includes(m.id)) lastSeen[m.id] = now();
+    if (m.type === 'gone' && AGENT_IDS.includes(m.id)) delete lastSeen[m.id];
+    check();
+  };
+  const ping = () => {
+    ctl.postMessage({ type: 'ping' });
+    check();
+  };
+  ping();
+  const timer = setInterval(ping, PING_MS);
+  return {
+    ready,
+    presence,
+    onPresence(fn) {
+      fns.add(fn);
+      return () => fns.delete(fn);
+    },
+    send(id, msg) {
+      ctl.postMessage({ type: 'cmd', target: id, ...msg });
+    },
+    close() {
+      clearInterval(timer);
+      ctl.close();
+    },
+  };
+}
 
 function spawn(url, initMsg, label) {
   const w = new Worker(url, { type: 'module' });
@@ -30,7 +128,8 @@ function spawn(url, initMsg, label) {
   return { worker: w, ready };
 }
 
-export async function createRuntime({ seed = 0, leadMs = START_LEAD_MS } = {}) {
+export async function createRuntime({ seed = 0, leadMs = START_LEAD_MS, agentHost = 'workers' } = {}) {
+  if (agentHost !== 'workers' && agentHost !== 'windows') throw new Error(`agentHost: ${agentHost}`);
   if (leadMs <= BAR_MS) console.warn(`runtime: leadMs ${leadMs} is under one bar; bar 0 may play the default mood`);
   const telemetry = new BroadcastChannel('ea-telemetry');
   const netem = new BroadcastChannel('ea-netem');
@@ -40,14 +139,14 @@ export async function createRuntime({ seed = 0, leadMs = START_LEAD_MS } = {}) {
     for (const fn of listeners) fn(e.data);
   };
 
-  const agents = {};
-  const spawned = AGENT_IDS.map((id) => {
-    const s = spawn(new URL('./agent.worker.js', import.meta.url), { cmd: 'init', id, seed }, id);
-    agents[id] = s.worker;
-    return s.ready;
-  });
+  const host = agentHost === 'windows' ? windowHost() : workerHost(seed);
+  const toAgent = (id, msg) => {
+    if (!AGENT_CMDS.has(msg.cmd)) throw new Error(`runtime: ${msg.cmd} is not a fault-injection switch`);
+    host.send(id, msg);
+  };
   const world = spawn(new URL('./world.worker.js', import.meta.url), { cmd: 'init' }, 'world');
-  await Promise.all([...spawned, world.ready]);
+  // Workers mode: wait for the agents too. Windows mode: they arrive when opened (rt.agentsReady).
+  await Promise.all(agentHost === 'workers' ? [host.ready, world.ready] : [world.ready]);
 
   let t0 = null;
   let loss = 0;
@@ -59,6 +158,23 @@ export async function createRuntime({ seed = 0, leadMs = START_LEAD_MS } = {}) {
 
   const rt = {
     agentIds: [...AGENT_IDS],
+    agentHost,
+    agentsReady: host.ready,
+    presence: host.presence,
+    onPresence: host.onPresence,
+    /** Workers mode: ids of leftover agent windows that would double-play. Should be []. */
+    strayWindows: host.strayWindows ?? (() => []),
+    /** Windows mode: open (or focus) one agent's window, tiled 2x2. Call from a click handler. */
+    openAgentWindow(id) {
+      const i = AGENT_IDS.indexOf(id);
+      if (i < 0) throw new Error(`unknown agent ${id}`);
+      const w = 440;
+      const h = 300;
+      const left = Math.max(0, (screen.availWidth || 1280) - 2 * w) + (i % 2) * w;
+      const top = Math.floor(i / 2) * (h + 40);
+      const url = new URL(`./agent.html?id=${id}&seed=${seed}`, import.meta.url);
+      return window.open(url, `ea-agent-${id}`, `popup,width=${w},height=${h},left=${left},top=${top}`);
+    },
     get t0() {
       return t0;
     },
@@ -127,16 +243,16 @@ export async function createRuntime({ seed = 0, leadMs = START_LEAD_MS } = {}) {
     },
     restore() {
       setLoss(0);
-      for (const id of AGENT_IDS) agents[id].postMessage({ cmd: 'resetFlags' });
+      for (const id of AGENT_IDS) toAgent(id, { cmd: 'resetFlags' });
     },
     setRogue(id, on) {
-      agents[id].postMessage({ cmd: 'setRogue', on: !!on });
+      toAgent(id, { cmd: 'setRogue', on: !!on });
     },
     setBaseline(on) {
-      for (const id of AGENT_IDS) agents[id].postMessage({ cmd: 'setBaseline', on: !!on });
+      for (const id of AGENT_IDS) toAgent(id, { cmd: 'setBaseline', on: !!on });
     },
     terminate() {
-      for (const w of Object.values(agents)) w.terminate();
+      host.close();
       world.worker.terminate();
       telemetry.close();
       netem.close();

@@ -14,8 +14,33 @@ let rogueOn = false;
 let baselineOn = false;
 let randRot = false;
 
-const rt = await createRuntime({ seed: 0 });
-log('workers ready:', rt.agentIds.join(', '));
+// ?agents=windows -> each agent in its own window (open them before Start).
+const agentHost = new URLSearchParams(location.search).get('agents') === 'windows' ? 'windows' : 'workers';
+const rt = await createRuntime({ seed: 0, agentHost });
+log(`runtime ready (${agentHost} mode):`, rt.agentIds.join(', '));
+if (agentHost === 'workers') {
+  setInterval(() => {
+    const s = rt.strayWindows();
+    $('#phase').dataset.stray = s.join(',');
+    if (s.length) $('#scene').innerHTML = `<span class="bad">Agent windows still open (${s.join(', ')}): they will double-play. Close them.</span>`;
+  }, 1000);
+}
+if (agentHost === 'windows') {
+  const bar = $('#windows');
+  bar.hidden = false;
+  for (const id of rt.agentIds) {
+    const b = document.createElement('button');
+    b.id = `open-${id}`;
+    b.onclick = () => rt.openAgentWindow(id);
+    bar.append(b);
+  }
+  const paint = (p) => {
+    for (const id of rt.agentIds) $(`#open-${id}`).textContent = `${p[id] ? '●' : '○'} ${id}`;
+    $('#start').disabled = !rt.agentIds.every((id) => p[id]);
+  };
+  paint(rt.presence());
+  rt.onPresence(paint);
+}
 for (const id of rt.agentIds) state[id] = { ctx: null, rx: 0, status: null, ghosts: 0, notes: 0 };
 
 rt.onTelemetry((m) => {

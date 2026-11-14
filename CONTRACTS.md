@@ -34,6 +34,7 @@ Perception maths (`web/core/perception.js`, which must match NumPy to 1e-4):
 | `ea-hub` | hub → agents and world, rehearsal only | `{type:'start', t0}` (**repeated every 200 ms until acknowledged**; only a new `t0` restarts anything) **[PROPOSED]**, `{type:'useRandomRotation', on}`, `{type:'end'}` **[PROPOSED: end]** | closed at end of rehearsal or on Cut |
 | `ea-net` | agent ↔ agent | `{type:'note', ...NoteEvent}`, `{type:'suspect', from, target, score, suspect, bar}`, `{type:'lead', from, bar, mode, density}` (baseline only) **[PROPOSED: suspect/bar fields, lead]** | yes (loss slider, Cut) |
 | `ea-netem` | experimenter → transport | `{type:'loss', p}` | never; agent logic never sees it |
+| `ea-control` | Stage ↔ agent **windows** (windows mode only) | Stage→window: `{type:'ping'}`, `{type:'cmd', target, cmd:'setRogue'\|'setBaseline'\|'resetFlags', on}`. Window→Stage: `{type:'present', id}`, `{type:'gone', id}`. Between windows: `{type:'claim'\|'taken', id, nonce}` (duplicate guard). The window relays only those three commands to its Worker. **[PROPOSED, stretch]** | never |
 | `ea-telemetry` | agents and world → Stage, one way | see below | never; agents never subscribe |
 
 ## NoteEvent
@@ -89,4 +90,10 @@ rt.endRehearsal(); rt.setRandomRotation(on);
 rt.setLoss(p); rt.cut(); rt.restore(); rt.setRogue('poetB', on); rt.setBaseline(on);
 ```
 
-**Only one Stage tab per machine.** Channel names are shared by every tab on the same origin, so a second Stage tab's hub would steer the first tab's agents.
+## Windows mode (stretch, `role2-windows`)
+`createRuntime({ agentHost: 'windows' })` keeps only the world in the Stage. Each agent runs in `web/agent.html?id=<id>`, which hosts the same `agent.worker.js`.
+- Open all four windows **before** Start. A window opened later never gets `t0`. Rejoining after closing a window isn't supported.
+- `rt.openAgentWindow(id)` opens a tiled window (call it from a click). `rt.presence()`, `rt.onPresence(fn)` and `rt.agentsReady` track which windows are up.
+- Keep all four windows **visible** (tiled). Browsers slow down hidden or fully covered windows.
+
+**Only one Stage tab per machine.** Channel names are shared by every tab on the same origin, so a second Stage tab's hub would steer the first tab's agents. Likewise, close every agent window before a workers-mode run (`rt.strayWindows()` reports any left open).
