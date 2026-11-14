@@ -29,6 +29,69 @@
 
 import { SCALES, relPc } from './theory.js';
 
+// Chord notes as absolute pitch classes: C = 0, D = 2.
+const PROGRESSIONS = {
+  ionian: [
+    [2, 6, 9],   // D major
+    [11, 2, 6],  // B minor
+    [7, 11, 2],  // G major
+    [9, 1, 4],   // A major
+  ],
+  dorian: [
+    [2, 5, 9],   // D minor
+    [7, 11, 2],  // G major
+    [0, 4, 7],   // C major
+    [2, 5, 9],   // D minor
+  ],
+  aeolian: [
+    [2, 5, 9],   // D minor
+    [10, 2, 5],  // B-flat major
+    [5, 9, 0],   // F major
+    [0, 4, 7],   // C major
+  ],
+};
+
+function chordForBar(mode, bar) {
+  // Each scene has four chords, each lasting two bars.
+  const chordIndex = Math.floor((bar % 8) / 2);
+
+  return PROGRESSIONS[mode][chordIndex];
+};
+
+function choosePadVoicing(chord, previous = [50, 54, 57]) {
+  const pool = [];
+
+  for (let pitch = 50; pitch <= 62; pitch++) {
+    if (chord.includes(pitch % 12)) pool.push(pitch);
+  }
+
+  let best = pool.slice(0, 3);
+  let bestScore = Infinity;
+
+  for (let i = 0; i <= pool.length - 3; i++) {
+    const candidate = pool.slice(i, i + 3);
+
+    const score = candidate.reduce(
+      (sum, pitch, index) =>
+        sum + Math.abs(pitch - previous[index]),
+      0,
+    );
+
+    if (score < bestScore) {
+      best = candidate;
+      bestScore = score;
+    }
+  }
+
+  return best;
+};
+
+
+
+
+
+
+
 const RANGE = {
   architect: [50, 62],
   melodist: [62, 74],
@@ -52,8 +115,56 @@ export function compose({ role, bar, ctx, state = {}, rng, rogue, defend }) {
     for (const beat of beats.slice(0, 2).sort((a, b) => a - b)) {
       notes.push({ beat, pitch: rng() < 0.5 ? 75 : 68, dur: 0.5, vel: 0.9 });
     }
+
+
+   } else if (role === 'architect') {
+    let padVoicing = state.padVoicing;
+
+    // Start a new chord every two bars.
+    if (bar % 2 === 0) {
+      const chord = chordForBar(ctx.mode, bar);
+
+      padVoicing = choosePadVoicing(chord, state.padVoicing);
+      const padPitches = [...padVoicing];
+
+      // Add the chord's ninth at the highest density.
+      if (ctx.density === 3) {
+        const ninthPc = (chord[0] + 2) % 12;
+
+        for (let pitch = 50; pitch <= 62; pitch++) {
+          if (pitch % 12 === ninthPc) {
+            padPitches.push(pitch);
+            break;
+          }
+        }
+      }
+
+      // Low D drone, held for two bars.
+      notes.push({
+        beat: 0,
+        pitch: 38,
+        dur: 8,
+        vel: 0.35,
+      });
+
+      // Supporting chord, also held for two bars.
+      for (const pitch of padPitches) {
+        notes.push({
+          beat: 0,
+          pitch,
+          dur: 8,
+          vel: 0.45,
+        });
+      }
+    }
+
+    return {
+      notes,
+      state: { ...state, lastBar: bar, padVoicing },
+    };
   } else {
     const [lo, hi] = RANGE[role] ?? [60, 72];
+
     const allowed = defend ? [0, 7] : SCALES[ctx.mode];
     const pool = [];
     for (let p = lo; p <= hi; p++) if (allowed.includes(relPc(p))) pool.push(p);
@@ -61,3 +172,5 @@ export function compose({ role, bar, ctx, state = {}, rng, rogue, defend }) {
   }
   return { notes, state: { ...state, lastBar: bar, prevNotes: notes.map((n) => n.pitch) } };
 }
+
+
