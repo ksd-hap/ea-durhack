@@ -12,7 +12,8 @@
 
 import { BARS_PER_SCENE, barAt } from './core/time.js';
 import { createTelemetrySender } from './telemetry-out.js';
-import { CHANNEL, openChannel } from './channels.js';
+import { CHANNEL, openChannel, useRelay } from './channels.js';
+import { now } from './clock.js';
 
 const AGENT_IDS = ['eyeA', 'poetA', 'eyeB', 'poetB'];
 const LOOKAHEAD_BARS = 3; // 1 bar planning lookahead + 1 bar for beliefs to cross the network + margin
@@ -24,7 +25,6 @@ let nextView = 0; // next scene index whose views are not yet sent
 let nextAnnounce = 0; // next scene index not yet announced on telemetry
 let lastRefreshBar = null; // last bar on which the current views were re-sent
 
-const now = () => performance.timeOrigin + performance.now();
 let senses = null;
 let telemetry = null;
 let hub = null;
@@ -46,7 +46,7 @@ function onHub(e) {
   }
 }
 
-// Main thread sends only {cmd:'init', session, scenesUrl?}. Channels open here, once the
+// Main thread sends only {cmd:'init', session, scenesUrl?, relay?}. Channels open here, once the
 // session (which run's channels to use) is known.
 self.onmessage = async (e) => {
   const m = e.data ?? {};
@@ -56,6 +56,12 @@ self.onmessage = async (e) => {
     if (!res.ok) throw new Error(`scenes.json: HTTP ${res.status}`);
     scenes = await res.json();
     if (!Array.isArray(scenes) || scenes.length === 0) throw new Error('scenes.json is empty');
+    if (m.relay) {
+      const { connectRelay } = await import('./relay-client.js');
+      const r = connectRelay(m.relay, { label: 'world' });
+      useRelay(r);
+      await r.ready;
+    }
     senses = Object.fromEntries(AGENT_IDS.map((id) => [id, openChannel(CHANNEL.sense(id), m.session)]));
     telemetry = createTelemetrySender(m.session);
     hub = openChannel(CHANNEL.hub, m.session);

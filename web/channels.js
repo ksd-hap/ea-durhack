@@ -26,8 +26,16 @@ export function newSession() {
   return [...bytes].map((b) => b.toString(36).padStart(2, '0')).join('').slice(0, 10);
 }
 
+// Phones: when this context uses a relay (relay-client.js), channels go over the network to the
+// laptop and the other devices instead of staying inside one browser. Same API either way.
+let relay = null;
+export function useRelay(r) {
+  relay = r;
+}
+
 /** Open a channel scoped to `session`. `base` is a CHANNEL name (sense: CHANNEL.sense(id)). */
 export function openChannel(base, session) {
   if (!SESSION_RE.test(String(session))) throw new Error(`openChannel(${base}): invalid session "${session}"`);
+  if (relay) return relay.openChannel(`${base}:${session}`);
   return new BroadcastChannel(`${base}:${session}`);
 }
