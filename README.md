@@ -21,6 +21,9 @@ Dev pages (serve from the **repo root** instead, so `sim/` is reachable):
 - `http://localhost:8000/web/dev/selftest.html` runs the JS-vs-NumPy check, the false-positive test and the detection test in the browser, with no Node needed.
 - `http://localhost:8000/web/dev/harness.html` is the live runtime. Use it to Start, Corrupt Pulse, Cut, Restore and set loss, and to watch the agent table.
 
+### Agents in separate windows (stretch)
+Open `http://localhost:8000/web/dev/harness.html?agents=windows` (served from the repo root) and click each agent's button to open its window. Start becomes available once all four show ●. Each window hosts one agent Worker; the Stage keeps the world, sound and painting. Demo beat: close one agent's window mid-performance and the other three carry on.
+
 ## Who owns what
 | Role | Owns | Branch |
 |---|---|---|

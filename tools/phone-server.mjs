@@ -2,7 +2,7 @@
 // Phone server [Role 2]: serves web/ to the phones and relays channel messages between devices.
 // No dependencies. One port, so one firewall rule.
 //
-//   node tools/phone-server.mjs [--port 8000]
+//   node tools/phone-server.mjs [--port 8000] [--host 0.0.0.0]
 //   then on each phone (same Wi-Fi / the laptop's hotspot):  http://<laptop-ip>:8000/phone-check.html
 //
 // The relay is the "air": a dumb broadcast medium. Each message published on a channel goes to
@@ -20,7 +20,9 @@ import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '..', 'web');
-const PORT = Number(process.argv[process.argv.indexOf('--port') + 1]) || 8000;
+const arg = (k, d) => (process.argv.includes(k) ? process.argv[process.argv.indexOf(k) + 1] : d);
+const PORT = Number(arg('--port', 8000));
+const HOST = arg('--host', '0.0.0.0'); // 127.0.0.1 = this laptop only (no firewall prompt, no phones)
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json',
   '.css': 'text/css', '.jpg': 'image/jpeg', '.png': 'image/png', '.svg': 'image/svg+xml', '.txt': 'text/plain', '.md': 'text/plain' };
 const now = () => performance.timeOrigin + performance.now();
@@ -119,10 +121,11 @@ server.on('upgrade', (req, socket) => {
   });
 });
 
-server.listen(PORT, '0.0.0.0', () => {
+server.listen(PORT, HOST, () => {
   const ips = Object.values(networkInterfaces()).flat().filter((i) => i && i.family === 'IPv4' && !i.internal).map((i) => i.address);
   console.log(`EÄ phone server: serving ${ROOT} on port ${PORT} (no-cache), relay at /relay`);
   console.log(`  laptop Stage:  http://localhost:${PORT}/?phones`);
-  for (const ip of ips) console.log(`  phones:        http://${ip}:${PORT}/phone-check.html   (then /phone.html)`);
+  if (HOST === '127.0.0.1' || HOST === 'localhost') console.log('  (bound to this laptop only: phones cannot connect. Drop --host to serve the network.)');
+  else for (const ip of ips) console.log(`  phones:        http://${ip}:${PORT}/phone-check.html   (then /phone.html)`);
   if (!ips.length) console.log('  (no network address found: join the hotspot / Wi-Fi first)');
 });

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EÄ agent</title>
+  <style>
+    :root { color-scheme: dark; --accent: #888; }
+    html, body { margin: 0; height: 100%; background: #0b0b10; color: #ddd; font: 15px/1.4 system-ui, sans-serif; }
+    main { box-sizing: border-box; height: 100%; padding: 14px 16px; border-top: 6px solid var(--accent); display: grid; grid-template-rows: auto auto 1fr auto; gap: 6px; }
+    h1 { margin: 0; font-size: 22px; } h1 small { font-weight: 400; color: #999; font-size: 14px; }
+    .ctx { font-size: 28px; font-weight: 600; }
+    .row { color: #aaa; font-size: 13px; }
+    .warn { color: #ec6; } .bad { color: #e66; } .ok { color: #7c7; }
+    .melkor main { border-top-color: #b01030; background: #1a0508; }
+    #note { font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1 id="name">agent <small id="role"></small></h1>
+    <div class="ctx" id="ctx">waiting…</div>
+    <div>
+      <div class="row" id="state">starting worker…</div>
+      <div class="row" id="net"></div>
+      <div class="row" id="flags"></div>
+    </div>
+    <div class="row" id="note"></div>
+  </main>
+  <script type="module" src="agent-window.js"></script>
+</body>
+</html>
