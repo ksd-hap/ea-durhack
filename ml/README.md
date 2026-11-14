@@ -34,7 +34,10 @@ Caches (images, `.npy`, `fit.npz`) live outside the repo, in `$EA_CACHE` (defaul
 | Poet-B | `all-MiniLM-L6-v2` (384) | caption 2 of 5 |
 
 - **Splits.** 600 calibration, 200 held-out evaluation and a 400-image demo candidate pool (caption mood keywords). All are image-disjoint, with seed 0.
-- **Demo scenes.** 48 scenes picked from the candidate pool by caption-based truth **only**, round-robin over the 9 (mode, density) cells. Never chosen by agent agreement.
+- **Demo scenes.** 48 scenes picked from the candidate pool by caption-based truth **only**, round-robin over the 9 (mode, density) cells, **clearest caption mood first**. Clarity is how far a scene's standardised truth scores sit inside their tertile band on both axes. Never chosen by agent agreement.
+  - **Measured once, after the fact,** on the agents' JS perception: the old pool-order set gave 38.0% mood accuracy, 60.9% mode accuracy and 30.2% pairwise agreement; the clearest-first set gives 45.3%, 64.6% and 30.6%.
+  - **The gain is mostly the poets.** Eye accuracy moved 39.6% → 36.5% (noise at n = 96), and agreement didn't change.
+  - **Scene choice doesn't fix agreement.** Four independent agents, each right about half the time, rarely all agree. Pitch the resilience against truth, not unanimity.
 - **Map.** `z = ((x - mu) @ W) @ R`. `W` is PCA to 32 with whitening folded in. `R` is orthogonal Procrustes to Poet-A on calibration. Ridge (alpha 10) is reported as a comparison; `R_random` is the control.
 - **Statistics per method.** Score statistics are fitted per agent **and per method**, in `stats_by_method`. So the random-rotation control is standardised with its own statistics, in Python and in JS alike (`web/core/perception.js`).
 - **Truth.** Poet-A's frame applied to the mean of all 5 MPNet caption embeddings. Standardised with its own calibration statistics and thresholded at Poet-A's tertiles.

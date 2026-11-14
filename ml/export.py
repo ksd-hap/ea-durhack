@@ -76,9 +76,21 @@ def main():
         return {"id": r["id"], "truth": truth[i], "views": {ag: r5(X[ag][i]).tolist() for ag in AGENTS},
                 "thumb": thumb, "caption": r["captions"][0]}
 
-    # Demo: caption truth only, round-robin over the arc's cells.
+    # Demo: caption truth ONLY (agents' outputs play no part), round-robin over the arc's cells,
+    # clearest caption mood first. Clarity = how far the standardised truth scores sit inside
+    # their tertile band on BOTH axes: min over valence/arousal of the distance to the nearest
+    # boundary of the band. Clear-cut scenes make the performance legible; ambiguous ones
+    # (near a boundary) are left for the held-out evaluation, which uses all 200 regardless.
+    sv = (tv - ts["val_mean"]) / ts["val_std"]
+    sa = (ta - ts["aro_mean"]) / ts["aro_std"]
+
+    def inside(s, lo, hi):
+        lv = int(level(s, lo, hi))
+        return lo - s if lv == 0 else (min(s - lo, hi - s) if lv == 1 else s - hi)
+
+    clarity = np.array([min(inside(v, *meta["thresholds"]["valence"]), inside(a, *meta["thresholds"]["arousal"])) for v, a in zip(sv, sa)])
     cand = [i for i, r in enumerate(rows) if r["split"] == "candidate"]
-    by_cell = {c: [i for i in cand if (truth[i]["mode"], truth[i]["density"]) == c] for c in ARC}
+    by_cell = {c: sorted((i for i in cand if (truth[i]["mode"], truth[i]["density"]) == c), key=lambda i: -clarity[i]) for c in ARC}
     demo = []
     while len(demo) < N_DEMO and any(by_cell.values()):
         for c in ARC:
@@ -121,7 +133,8 @@ def main():
             "eye_b_crop": "seeded random crop, 70% of area, rng = default_rng([0, image_id])",
             "poets": {"poetA": "caption 1 of 5", "poetB": "caption 2 of 5"}, "truth": "mpnet mean of all 5 captions",
             **{f"{s}_ids": [r["id"] for r in rows if r["split"] == s] for s in ("calibration", "evaluation", "candidate")},
-            "demo_ids": [rows[i]["id"] for i in demo]}
+            "demo_ids": [rows[i]["id"] for i in demo],
+            "demo_selection": "caption truth only: round-robin over 9 cells in arc order, clearest caption mood first (min distance of standardised truth scores to their tertile boundaries)"}
     save_json(ROOT / "web/data/provenance.json", prov, compact=False)
 
     cells = {}
