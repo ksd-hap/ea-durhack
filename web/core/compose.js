@@ -24,7 +24,13 @@
 //                    //   the pcs listed: Eb major answers Eb, E7 answers G#. Anything else outside
 //                    //   the modes is indistinguishable from Melkor and gets this agent flagged.
 //     defend,        // boolean: rogue flagged and nothing heard for 2 bars
-//     rogue,         // boolean: THIS agent is Melkor
+//     rogue,         // boolean: THIS agent is Melkor. Corrupt YOUR OWN job: your register,
+//                    //   rhythm and role (a corrupted Architect poisons the drone/pads, a corrupted
+//                    //   Weaver the inner voices...), using Eb/G# for at least half of its notes and
+//                    //   at least 2 notes per bar, so the others can catch it within ~3 bars.
+//     cover,         // null | 'architect'|'melodist'|'weaver'|'pulse': a peer with that job was
+//                    //   flagged and I'm the honest agent chosen to cover it. Add a minimal, in-scale
+//                    //   version of that job (e.g. covering the Architect: a D/A pedal) on top of mine.
 //   }) -> {
 //     notes: [{ beat, pitch, dur, vel }],   // beat 0-based in [0,4) (musical beats 1 and 3 = 0 and 2),
 //                                           // pitch MIDI (D4 = 62), dur in beats > 0, vel in (0,1]
