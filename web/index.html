@@ -180,7 +180,8 @@
   </div>
 
   <!-- =========================================================================
-       2. AGENT BADGES. The "—" under each name is replaced with its mood (e.g. "Aeo · 2").
+       2. AGENT BADGES. The "—" under each name is replaced with its mood (e.g. "Dark · busy").
+       Click a badge to see the painting through that agent's eyes.
        The <svg id="threads"> behind them gets the curved network lines from stage.js.
        CUSTOMISE: the sub-labels (role · encoder) are plain text here.
        ========================================================================= -->
@@ -194,9 +195,9 @@
 
   <main>
     <!-- =======================================================================
-         3a. PAINTING. This canvas is a placeholder: the p5 painter replaces it with
-         its own canvas (same id) and adds #ghost-layer on top. What gets painted:
-         paint-p5.js (brushes) and composition.js (where the landscape sits).
+         3a. PAINTING. The default painter (paint-scene.js) draws the whole world on this
+         one canvas, 30 times a second. (The fallback ?painter=p5 swaps in its own canvas and
+         adds overlay layers.) Hills, shore and moon positions: composition.js.
          ======================================================================= -->
     <div id="canvas-wrap"><canvas id="paint"></canvas></div>
 
