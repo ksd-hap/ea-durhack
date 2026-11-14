@@ -16,6 +16,9 @@
 //                    //   slot = eighth-note slot 0..7, beat = slot / 2, pc = absolute pitch class (C = 0)
 //     lastBarNotes,  // NoteEvents received from peers for bar - 1 (collision avoidance)
 //     absorb,        // null | { pcs: [absolute pitch classes] } e.g. 3 = Eb, 8 = G#: rogue flagged, comms up
+//                    //   Honest notes may use Eb/G# (outside all three modes) ONLY here, and only
+//                    //   the pcs listed: Eb major answers Eb, E7 answers G#. Anything else outside
+//                    //   the modes is indistinguishable from Melkor and gets this agent flagged.
 //     defend,        // boolean: rogue flagged and nothing heard for 2 bars
 //     rogue,         // boolean: THIS agent is Melkor
 //   }) -> {
