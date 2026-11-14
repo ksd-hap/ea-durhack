@@ -243,6 +243,22 @@ export async function createScenePainter(canvas, { seed = 1 } = {}) {
     poetB: [40, 380],                  // its stars, high in the sky
   };
   let rogueFrom = 'poetB';
+
+  // ---- COVERING (Role 2's any-rogue contract) ---------------------------------------------
+  // Once an agent is flagged, exactly one honest agent covers its job; its status telemetry says
+  // covering: 'architect'|'melodist'|'weaver'|'pulse'. We then draw THAT agent's brush repairing
+  // the corrupted layer, mend the cracks there in gold, and let the red recede.
+  const ROLE_AGENT = { architect: 'eyeA', melodist: 'poetA', weaver: 'eyeB', pulse: 'poetB' };
+  const LAYER_NAME = { eyeA: 'sky', poetA: 'mountains', eyeB: 'aurora and lake', poetB: 'stars' };
+  const covers = {};                       // coveredAgentId -> { by: coveringAgentId, at: ms of last status }
+  const coverActive = (id) => covers[id] && now() - covers[id].at < 2 * BAR_MS;
+  /** Which part of the canvas each agent's layer occupies (y range), for the repair brush. */
+  function layerBand(id) {
+    if (id === 'poetA') return [HORIZON - Math.max(160, MOUNTAIN_MAX * 0.8), HORIZON];
+    if (id === 'eyeB') return [HORIZON + 20, H - 60];
+    if (id === 'poetB') return [30, 380];
+    return [40, HORIZON - 40];                                      // eyeA: the sky
+  }
   function newSite() {
     const ox = 200 + r() * (W - 400);
     const reg = CORRUPT_REGION[rogueFrom];
@@ -294,7 +310,8 @@ export async function createScenePainter(canvas, { seed = 1 } = {}) {
     // (named `segs`, not `grow`: `grow` is the world-building state used just above)
     const segs = isolated ? SEGMENTS_PER_NOTE * ISOLATED_MULT : kintsugi ? CONTAINED_SEGMENTS : SEGMENTS_PER_NOTE;
     for (let i = 0; i < segs; i++) growCrack();
-    if (kintsugi && !isolated) cracks.slice(-segs).forEach((c, i) => (c.mendAt = now() + MEND_LAG_MS + i * MEND_STAGGER_MS));
+    // Mended (with a lag) if the others absorb him OR an honest agent is covering his layer.
+    if ((kintsugi || coverActive(n.from)) && !isolated) cracks.slice(-segs).forEach((c, i) => (c.mendAt = now() + MEND_LAG_MS + i * MEND_STAGGER_MS));
     if (n.from === 'eyeA') moonRed = Math.min(1, moonRed + 0.06);    // a corrupt Architect bloodies the moon
     const last = cracks.at(-1);
     pulsePlace(last);
@@ -583,6 +600,30 @@ export async function createScenePainter(canvas, { seed = 1 } = {}) {
       }
     }
   }
+  /**
+   * THE REPAIR: for each corrupted layer an honest agent is covering, its brush (a soft glow in
+   * the coverer's colour, trailing gold sparks) sweeps back and forth across that layer.
+   * CUSTOMISE: sweep speed (0.35 px/ms) and glow size (rx, ry).
+   */
+  function drawRepair(g, t) {
+    for (const id in covers) {
+      if (!coverActive(id)) continue;
+      const by = covers[id].by, [y0, y1] = layerBand(id);
+      const span = W + 300, p = (t * 0.35) % (2 * span);
+      const x = (p < span ? p : 2 * span - p) - 150;              // back and forth
+      const y = (y0 + y1) / 2 + Math.sin(t / 700) * (y1 - y0) * 0.25;
+      const rx = 170, ry = Math.max(50, (y1 - y0) * 0.35);
+      g.save(); g.translate(x, y); g.scale(1, ry / rx);
+      const rg = g.createRadialGradient(0, 0, 0, 0, 0, rx);
+      rg.addColorStop(0, agentColour(by, 75, 0.45)); rg.addColorStop(1, agentColour(by, 65, 0));
+      g.fillStyle = rg; g.beginPath(); g.arc(0, 0, rx, 0, 6.283); g.fill();
+      g.restore();
+      for (let k = 0; k < 6; k++) {                                // gold sparks trailing the brush
+        const sx = x - (p < span ? 1 : -1) * (30 + k * 26), sy = y + Math.sin(t / 200 + k * 1.7) * ry * 0.6;
+        g.fillStyle = `rgba(255,215,120,${0.7 - k * 0.1})`; g.beginPath(); g.arc(sx, sy, 4 - k * 0.4, 0, 6.283); g.fill();
+      }
+    }
+  }
   function drawPulses(g, t) {
     // A soft glow (not an outline), so pulses can't be confused with the ghost markers.
     for (const p of pulses) {
@@ -601,7 +642,8 @@ export async function createScenePainter(canvas, { seed = 1 } = {}) {
     // CUSTOMISE: LEGEND_FONT is the text size in canvas pixels (the canvas is 1920 wide, shown smaller).
     const LEGEND_FONT = 30, rowH = 46;
     const lines = rows.map((row) => `${row.name} · ${row.paints}`);
-    if (melkorOn) lines.push(`Melkor = ${AGENT_INFO[rogueFrom]?.name || 'an agent'} corrupted · its part turns red, cracks spread`);
+    if (melkorOn) lines.push(`Melkor = ${AGENT_INFO[rogueFrom]?.name || 'an agent'} corrupted · its ${LAYER_NAME[rogueFrom] || 'part'} turn red`);
+    for (const id in covers) if (coverActive(id)) lines.push(`${AGENT_INFO[covers[id].by].name} is repairing the ${LAYER_NAME[id]} (gold = mended)`);
     g.font = `${LEGEND_FONT}px system-ui, sans-serif`;
     const wBox = Math.max(...lines.map((s) => g.measureText(s).width)) + 90;
     const x = 28, y = 26, hBox = 66 + lines.length * rowH;
@@ -613,7 +655,8 @@ export async function createScenePainter(canvas, { seed = 1 } = {}) {
       const id = rows[i]?.id;
       const yy = y + 66 + i * rowH + 30;
       const active = id ? t - (lastActive[id] || -1e9) < 600 : true;   // a row lights up while its agent plays
-      g.fillStyle = id ? agentColour(id, active ? 72 : 58, 1) : `rgba(${CRACK_RGB},1)`;
+      // Dot colour: the agent's colour; red for the Melkor line; gold for a "repairing" line.
+      g.fillStyle = id ? agentColour(id, active ? 72 : 58, 1) : line.includes('repairing') ? 'rgba(255,205,110,1)' : `rgba(${CRACK_RGB},1)`;
       g.beginPath(); g.arc(x + 36, yy - 10, active ? 14 : 10, 0, 6.283); g.fill();
       g.fillStyle = id ? (active ? 'rgba(255,255,255,1)' : 'rgba(255,255,255,0.72)') : 'rgba(255,200,200,0.95)';
       g.fillText(line, x + 62, yy);
@@ -655,7 +698,10 @@ export async function createScenePainter(canvas, { seed = 1 } = {}) {
     // Corruption heals only once Melkor falls silent (faster if the others had absorbed him).
     // While he is still playing, his part stays red, so the damage is visible during the demo.
     const silent = t - lastRogueAt > BAR_MS;
-    for (const id in corrupt) if (silent) corrupt[id] = Math.max(0, corrupt[id] - (kintsugi ? 0.006 : 0.003));
+    for (const id in corrupt) {
+      if (coverActive(id)) corrupt[id] = Math.max(0, corrupt[id] - 0.006);   // being repaired: recedes even while he plays
+      else if (silent) corrupt[id] = Math.max(0, corrupt[id] - (kintsugi ? 0.006 : 0.003));
+    }
     // 2. Upper scene into the offscreen canvas (so it can be reflected), then onto the page.
     //    Back to front: void/sky, stars, moon, clouds, the Melodist's mountains, the Architect's hills.
     drawSky(u); drawStars(u, t); drawMoon(u); drawClouds(u, t); drawMountains(u, t); drawHills(u);
@@ -665,7 +711,8 @@ export async function createScenePainter(canvas, { seed = 1 } = {}) {
     drawWater(f, t); drawShore(f); drawFireflies(f, t); drawRain(f, t);
     drawCracks(f, t);
     ctx.drawImage(full, 0, 0);
-    // 4. Labels and pulses on top, so you can see who is building what.
+    // 4. The repair brush, labels and pulses on top, so you can see who is building (and fixing) what.
+    drawRepair(ctx, t);
     drawPulses(ctx, t);
     drawLegend(ctx, t); drawBanner(ctx); drawCaption(ctx);
     stats.frames++; fpsN++;
@@ -707,6 +754,18 @@ export async function createScenePainter(canvas, { seed = 1 } = {}) {
     setKintsugi(on) { if (on && !kintsugi) scheduleMend(); kintsugi = on; },
     get kintsugi() { return kintsugi; },
     setIsolated(on) { if (isolated && !on && kintsugi) scheduleMend(); isolated = on; },
+    /**
+     * From status telemetry: agent `from` is covering `role` (or null = covering nothing).
+     * The covered layer then shows `from`'s repair brush and its cracks are mended in gold.
+     */
+    setCovering(from, role) {
+      for (const id in covers) if (covers[id].by === from && ROLE_AGENT[role] !== id) delete covers[id];
+      const target = ROLE_AGENT[role];
+      if (!target) return;
+      const fresh = !coverActive(target);
+      covers[target] = { by: from, at: now() };
+      if (fresh && !isolated) scheduleMend();                  // the repair starts: gold walks the existing cracks
+    },
     /** "View as": colour everything by one agent's mood and show its guesses. null = back to normal. */
     setPerspective(id) { perspective = id; },
     get perspective() { return perspective; },

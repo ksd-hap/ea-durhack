@@ -95,7 +95,9 @@ function ingest(m) {
       break;
     case 'note': { // CONTRACT: NoteEvent
       painter.enqueueNote(m);
-      audio?.onNote?.(m);
+      // Guarded: an audio hiccup (e.g. Tone.js scheduling two notes at the same instant) must never
+      // stop the painting or the metrics from getting this note.
+      try { audio?.onNote?.(m); } catch (err) { state.audioErrors = (state.audioErrors || 0) + 1; dbg('audio error', err); }
       state.notes.push({ bar: m.bar, pitch: m.pitch, from: m.from, rogue: !!m.rogue });
       if (state.notes.length > 4000) state.notes.splice(0, 2000);
       // Ghost matching: same predicted agent, same bar, same eighth slot, same pitch class.
@@ -130,6 +132,10 @@ function ingest(m) {
       state.status[m.from] = m;
       // Kintsugi: an honest agent is absorbing Melkor, so gold seams start mending his slashes.
       if (m.response === 'absorb' && !m.rogue) painter.setKintsugi(true);
+      // CONTRACT (any-rogue): status.covering = the role this honest agent is covering for the
+      // flagged agent ('architect'|'melodist'|'weaver'|'pulse'), or absent. The painter shows its
+      // brush repairing that layer, with gold kintsugi there.
+      if (!m.rogue) painter.setCovering?.(m.from, m.covering || null);
       break;
     default:
       state.unknown++;
