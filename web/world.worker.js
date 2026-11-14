@@ -5,16 +5,17 @@
 // scene id, truth, caption and thumbnail go to telemetry only, for the Stage's metrics.
 //
 // Timing: at hub start, t0 (= now + START_LEAD_MS = 5 s, chosen by the hub) is bar 0. Scene i starts
-// at bar 8i. Views are sent LOOKAHEAD_BARS before the scene starts, because agents plan
-// one bar ahead: the view for bar 8i must be in hand when bar 8i is planned, which is
-// at the start of bar 8i-1. Contexts are keyed by bar, so arriving early is harmless.
+// at bar 8i. Views are sent LOOKAHEAD_BARS (3) before the scene starts: agents plan one bar
+// ahead (bar 8i is planned at the start of 8i-1), and their beliefs about the new scene must
+// cross the network before that (broadcast at the start of 8i-2). Views are keyed by bar, so
+// arriving early is harmless.
 
 import { BARS_PER_SCENE, barAt } from './core/time.js';
 import { createTelemetrySender } from './telemetry-out.js';
 import { CHANNEL, openChannel } from './channels.js';
 
 const AGENT_IDS = ['eyeA', 'poetA', 'eyeB', 'poetB'];
-const LOOKAHEAD_BARS = 2;
+const LOOKAHEAD_BARS = 3; // 1 bar planning lookahead + 1 bar for beliefs to cross the network + margin
 const TICK_MS = 50;
 
 let scenes = null;
