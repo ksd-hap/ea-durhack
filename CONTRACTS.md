@@ -9,7 +9,8 @@ Items marked **[PROPOSED by Role 2]** fill gaps in the plan. Please ack or objec
 - A scene is 8 bars, and the chord changes every 2 bars: `chord = floor((bar % 8) / 2)`.
 - One bar lasts 3333.33 ms.
 - Context is `{ mode: 'ionian'|'dorian'|'aeolian', density: 1|2|3 }`. Valence sets the mode: high is ionian, mid is dorian, low is aeolian. Arousal sets the density: low is 1, high is 3.
-- `beat` is **0-based** in [0, 4). **[PROPOSED]**
+- `beat` is **0-based** in [0, 4). **[AGREED with Role 3]**
+- Start: the hub sets `t0 = now + 5000 ms` (`START_LEAD_MS` = 1.5 bars in `web/core/time.js`), **not** the plan's 2000 ms. Agents plan bar 0 one bar early, at `t0 - 3333 ms`. With a 2000 ms lead that moment has already passed when Start is pressed, so it raced the world's first views: in 5 of 6 browser trials at least one agent played bar 0 in the default mood. A lead of more than one bar removes the race. **[PROPOSED by Role 2]**
 
 ## Data files (Role 1 writes; fakes from `tools/make_fake_data.py` until then)
 | File | Shape |
@@ -27,10 +28,12 @@ Perception maths (`web/core/perception.js`, which must match NumPy to 1e-4):
 - Hysteresis: a level changes only when the score leaves its current band by more than `hysteresis`.
 
 ## Channels (BroadcastChannel)
+**Every name below is per run:** the real channel is `<name>:<session>`, e.g. `ea-net:k3f9x2ab01`. The Stage's runtime picks a random session on each `createRuntime()` and passes it to the world and the agents in `init`. So another Stage tab, or a leftover agent window, is on a different session and can't hear or steer this run. **Channels are created only in `web/channels.js` (`openChannel`); nobody else calls `new BroadcastChannel`.** CI enforces this for all roles. Roles 3 and 4 get everything through the runtime (`rt.onTelemetry`, `rt.cut()`, ...). **[PROPOSED by Role 2]**
+
 | Channel | Direction | Messages | Cut? |
 |---|---|---|---|
-| `ea-sense-<id>` | world → one agent | `{type:'view', bar, vec}` | never |
-| `ea-hub` | hub → agents and world, rehearsal only | `{type:'start', t0}`, `{type:'useRandomRotation', on}`, `{type:'end'}` **[PROPOSED: end]** | closed at end of rehearsal or on Cut |
+| `ea-sense-<id>` | world → one agent | `{type:'view', bar, vec}`, sent 2 bars before the scene starts and **re-sent every bar** (same bar gives the same context, so it's idempotent) **[PROPOSED]** | never |
+| `ea-hub` | hub → agents and world, rehearsal only | `{type:'start', t0}` (**repeated every 200 ms until acknowledged**; only a new `t0` restarts anything) **[PROPOSED]**, `{type:'useRandomRotation', on}`, `{type:'end'}` **[PROPOSED: end]** | closed at end of rehearsal or on Cut |
 | `ea-net` | agent ↔ agent | `{type:'note', ...NoteEvent}`, `{type:'suspect', from, target, score, suspect, bar}`, `{type:'lead', from, bar, mode, density}` (baseline only) **[PROPOSED: suspect/bar fields, lead]** | yes (loss slider, Cut) |
 | `ea-netem` | experimenter → transport | `{type:'loss', p}` | never; agent logic never sees it |
 | `ea-telemetry` | agents and world → Stage, one way | see below | never; agents never subscribe |
@@ -51,9 +54,26 @@ Agents plan bar n+1 while bar n sounds. Audio converts once: `offset = ctx.curre
 | `status` | `from, bar, rogue, baseline, randomRotation, response:'normal'\|'absorb'\|'defend', suspected:[ids], flagged:[ids], barsSilent` **[PROPOSED]** | each agent, every bar |
 | `rx` | `from, count, dropped, total, loss` (count and dropped are per 1 s interval) | transport, every 1 s |
 | `scene` | `index, bar, id, truth, thumb, caption` **[PROPOSED]** | world, when a scene starts |
+| `started` | `from, t0` (from is an agent id or `'world'`) **[PROPOSED]** | each agent and the world, on every `start` they receive |
+
+## Metrics (`web/metrics.js`, one definition for the Stage and the simulator)
+Role 4's metrics panel and `sim/engine.mjs` both compute every number through `createMetrics()`, so the panel cannot disagree with the slides. Don't reimplement any formula in `stage.js`.
+```js
+import { createMetrics } from './metrics.js';
+const m = createMetrics({ rollingBars: 8 });
+rt.onTelemetry((msg) => m.ingest(msg, Date.now()));
+const s = m.snapshot(Date.now());
+// s.phase 'Halls'|'Void', s.rxLast10s, s.bar, s.scene {id, truth, thumb, caption},
+// s.agents[id] {mode, density, correct, rogue, melkor: 'none'|'suspected'|'flagged'},
+// s.rolling {accuracy, mode_accuracy, agreement, mode_agreement, consonance, prediction_match, bars}
+```
+- **Definitions** are in the file header, computed over honest agents per bar.
+- **Consonance** counts all sounding notes, Melkor's included, against the honest majority's mode. On a tie, no mode is privileged.
+- **Window.** Values are over the last 8 closed bars. A bar closes when telemetry for a later bar arrives.
+- `web/dev/harness.html` shows a working panel. Agent code never imports this file (isolation check).
 
 ## Main thread → agent worker (fault injection only)
-`{cmd:'init', id, seed}`, `{cmd:'setRogue', on}`, `{cmd:'setBaseline', on}`, `{cmd:'resetFlags'}` **[PROPOSED: resetFlags, sent by Restore]**. Never musical information. Enforced by `tools/check_isolation.sh`.
+`{cmd:'init', id, seed, session}`, `{cmd:'setRogue', on}`, `{cmd:'setBaseline', on}`, `{cmd:'resetFlags'}` **[PROPOSED: resetFlags, sent by Restore]**. Never musical information. Enforced by `tools/check_isolation.sh`.
 
 ## Agent core (`web/core/agent.js`)
 ```js
@@ -75,13 +95,17 @@ A worked example lives in `web/core/compose.example.json`, and `tests/compose.co
 - `predictions`: `[{peer, role, bar, slot, beat, pc, pitch, count}]`. `slot` is the eighth-note slot (0 to 7), `beat = slot/2`, and `pc` is absolute (C = 0).
 - `lastBarNotes` holds the NoteEvents received from peers for `bar - 1`.
 - `absorb`: `null | {pcs: [absolute pcs]}`, e.g. 3 = E♭ and 8 = G♯.
+- **Honest notes may leave the three D modes only to answer a rogue.** The only pitch classes outside all three modes are E♭ and G♯, and they are the Melkor detector's evidence. An honest note may use them **only** when `absorb` is set, and only the pitch classes in `absorb.pcs`. So the Neapolitan (E♭ major) answering a rogue E♭ and E7 answering a rogue G♯ are fine; any other outside note would get the agent flagged. The detector excuses an E♭/G♯ from agent X only when the receiver already suspects another agent of playing that note, or hears another agent reporting one (never on X's own word). `tests/compose.contract.test.mjs` checks this rule on every PR. **[AGREED fix; Role 1 found the conflict]**
 - Output notes: `beat` is 0-based in [0,4) (musical beats 1 and 3 are 0 and 2), `pitch` is MIDI, `dur` is in beats and > 0, and `vel` is in (0,1].
 - The **agent wrapper** adds `from`, `bar`, `at` (absolute ms), `role` and `rogue`.
 - Pure: no audio, timers, browser APIs or `Math.random`. That way it also runs in the simulator.
 
 ## Runtime API for the Stage (`web/runtime.js`, Role 2)
 ```js
-const rt = await createRuntime({ seed });
-rt.onTelemetry(fn); rt.start(); rt.endRehearsal(); rt.setRandomRotation(on);
+const rt = await createRuntime({ seed });   // rt.session: this run's channel suffix
+rt.onTelemetry(fn); const t0 = rt.start(); await rt.started; // resolves when all 4 agents + world acknowledged
+rt.endRehearsal(); rt.setRandomRotation(on);
 rt.setLoss(p); rt.cut(); rt.restore(); rt.setRogue('poetB', on); rt.setBaseline(on);
 ```
+
+**Several Stage tabs no longer interfere** (each run has its own session), but for the demo still keep one Stage tab open, so there's only one sound output.

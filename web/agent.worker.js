@@ -2,7 +2,7 @@
 //
 // ============================== ISOLATION RULE ==============================
 // The main thread may send this worker ONLY these messages:
-//   {cmd:'init', id, seed}      which agent to be
+//   {cmd:'init', id, seed, session}  which agent to be, and which run's channels to join
 //   {cmd:'setRogue', on}        experimenter fault injection: become Melkor
 //   {cmd:'setBaseline', on}     experimenter switch: conductor-baseline comparison mode
 //   {cmd:'resetFlags'}          experimenter pressed Restore: clear sticky rogue flags
@@ -16,6 +16,7 @@ import { createAgent } from './core/agent.js';
 import { barAt } from './core/time.js';
 import { createTransport } from './transport.js';
 import { createTelemetrySender } from './telemetry-out.js';
+import { CHANNEL, openChannel } from './channels.js';
 
 const TICK_MS = 50;
 
@@ -56,7 +57,7 @@ self.onmessage = async (e) => {
   }
 };
 
-async function init({ id: myId, seed = 0 }) {
+async function init({ id: myId, seed = 0, session }) {
   if (agent) return;
   id = myId;
   const res = await fetch(new URL('./data/agents.json', import.meta.url));
@@ -69,26 +70,32 @@ async function init({ id: myId, seed = 0 }) {
     thresholds: data.thresholds,
     seed,
   });
-  telemetry = createTelemetrySender();
+  telemetry = createTelemetrySender(session);
   transport = createTransport({
     id,
     seed,
+    session,
     onDeliver: (msg) => agent.onPeer(msg),
     emit: (msg) => telemetry.send(msg),
   });
 
-  sense = new BroadcastChannel(`ea-sense-${id}`);
+  sense = openChannel(CHANNEL.sense(id), session);
   sense.onmessage = (ev) => {
     const v = ev.data;
     if (v && v.type === 'view') agent.onView(v.bar, v.vec);
   };
 
-  hub = new BroadcastChannel('ea-hub');
+  hub = openChannel(CHANNEL.hub, session);
   hub.onmessage = (ev) => {
     const h = ev.data ?? {};
     if (h.type === 'start') {
-      t0 = h.t0;
-      lastPlanned = null;
+      // The hub repeats 'start' until we acknowledge, so it must be idempotent:
+      // only a NEW t0 resets the bar loop (a repeat must not re-plan a bar).
+      if (h.t0 !== t0) {
+        t0 = h.t0;
+        lastPlanned = null;
+      }
+      telemetry.send({ type: 'started', from: id, t0 });
     } else if (h.type === 'useRandomRotation') {
       agent.setRandomRotation(!!h.on);
     } else if (h.type === 'end') {

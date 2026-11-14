@@ -46,5 +46,21 @@ test('JS perception matches NumPy testvectors to 1e-4', { skip: !existsSync(tvPa
     close(s.arousal, tv.arousal, `${tv.agent} arousal`);
     const ctx = contextFromLevels(level(s.valence, data.thresholds.valence), level(s.arousal, data.thresholds.arousal));
     assert.deepEqual(ctx, tv.context, `${tv.agent} ${tv.scene} context`);
+
+    // Random-rotation control: R_random AND its own standardisation statistics.
+    if (tv.random) {
+      const zr = embed(prep, tv.x, true);
+      for (let i = 0; i < zr.length; i++) close(zr[i], tv.random.z[i], `${tv.agent} random z[${i}]`);
+      const sr = moodScores(prep, anchors, zr, true);
+      close(sr.valence, tv.random.valence, `${tv.agent} random valence`);
+      close(sr.arousal, tv.random.arousal, `${tv.agent} random arousal`);
+      const cr = contextFromLevels(level(sr.valence, data.thresholds.valence), level(sr.arousal, data.thresholds.arousal));
+      assert.deepEqual(cr, tv.random.context, `${tv.agent} ${tv.scene} random context`);
+    }
   }
+});
+
+test('real data carries the random-control path in testvectors (not fake data)', { skip: JSON.parse(readFileSync(agentsPath, 'utf8')).fake && 'fake data' }, () => {
+  const tvs = JSON.parse(readFileSync(tvPath, 'utf8'));
+  assert.ok(tvs.every((tv) => tv.random), 'every test vector must include the random-rotation case');
 });

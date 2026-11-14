@@ -1,0 +1,240 @@
+{
+  "n_eval": 200,
+  "chance_mode": 0.3333333333333333,
+  "chance_context": 0.1111111111111111,
+  "majority_mode": 0.36,
+  "truth_mode_counts": {
+    "aeolian": 65,
+    "dorian": 63,
+    "ionian": 72
+  },
+  "agents": {
+    "eyeA": {
+      "fitted": {
+        "mode_acc": 0.535,
+        "mode_ci95": [
+          0.46586521028994954,
+          0.6028155692957681
+        ],
+        "density_acc": 0.505,
+        "context_acc": 0.265,
+        "context_ci95": [
+          0.20868060011609973,
+          0.33017702266551113
+        ],
+        "r_at_1": 0.22,
+        "r_at_5": 0.665
+      },
+      "ridge": {
+        "mode_acc": 0.52,
+        "mode_ci95": [
+          0.4510366005581654,
+          0.5882095592051018
+        ],
+        "density_acc": 0.545,
+        "context_acc": 0.265,
+        "context_ci95": [
+          0.20868060011609973,
+          0.33017702266551113
+        ],
+        "r_at_1": 0.29,
+        "r_at_5": 0.64
+      },
+      "random": {
+        "mode_acc": 0.395,
+        "mode_ci95": [
+          0.3298398699878317,
+          0.4641177912550158
+        ],
+        "density_acc": 0.27,
+        "context_acc": 0.11,
+        "context_ci95": [
+          0.07377190160716048,
+          0.16092798300912986
+        ],
+        "r_at_1": 0.005,
+        "r_at_5": 0.025
+      }
+    },
+    "poetA": {
+      "fitted": {
+        "mode_acc": 0.745,
+        "mode_ci95": [
+          0.6803694869280502,
+          0.8003959701719726
+        ],
+        "density_acc": 0.71,
+        "context_acc": 0.54,
+        "context_ci95": [
+          0.4708216309361468,
+          0.6076706885903875
+        ]
+      },
+      "ridge": {
+        "mode_acc": 0.745,
+        "mode_ci95": [
+          0.6803694869280502,
+          0.8003959701719726
+        ],
+        "density_acc": 0.71,
+        "context_acc": 0.54,
+        "context_ci95": [
+          0.4708216309361468,
+          0.6076706885903875
+        ]
+      },
+      "random": {
+        "mode_acc": 0.38,
+        "mode_ci95": [
+          0.3155889366123922,
+          0.4489341048080049
+        ],
+        "density_acc": 0.32,
+        "context_acc": 0.155,
+        "context_ci95": [
+          0.11139568514638545,
+          0.211608058937256
+        ]
+      }
+    },
+    "eyeB": {
+      "fitted": {
+        "mode_acc": 0.535,
+        "mode_ci95": [
+          0.46586521028994954,
+          0.6028155692957681
+        ],
+        "density_acc": 0.475,
+        "context_acc": 0.27,
+        "context_ci95": [
+          0.2132335473104056,
+          0.3354356154120221
+        ],
+        "r_at_1": 0.2,
+        "r_at_5": 0.625
+      },
+      "ridge": {
+        "mode_acc": 0.515,
+        "mode_ci95": [
+          0.44610724474630287,
+          0.5833273750761476
+        ],
+        "density_acc": 0.525,
+        "context_acc": 0.31,
+        "context_ci95": [
+          0.24998842733633997,
+          0.377173054912622
+        ],
+        "r_at_1": 0.23,
+        "r_at_5": 0.655
+      },
+      "random": {
+        "mode_acc": 0.265,
+        "mode_ci95": [
+          0.20868060011609973,
+          0.33017702266551113
+        ],
+        "density_acc": 0.335,
+        "context_acc": 0.055,
+        "context_ci95": [
+          0.030985020801370097,
+          0.0957879244659355
+        ],
+        "r_at_1": 0.0,
+        "r_at_5": 0.01
+      }
+    },
+    "poetB": {
+      "fitted": {
+        "mode_acc": 0.56,
+        "mode_ci95": [
+          0.4907154834956251,
+          0.6270229957941764
+        ],
+        "density_acc": 0.595,
+        "context_acc": 0.33,
+        "context_ci95": [
+          0.26857320614303315,
+          0.3978344358691961
+        ],
+        "r_at_1": 0.5,
+        "r_at_5": 0.845
+      },
+      "ridge": {
+        "mode_acc": 0.59,
+        "mode_ci95": [
+          0.5207633107255152,
+          0.655844408209187
+        ],
+        "density_acc": 0.57,
+        "context_acc": 0.32,
+        "context_ci95": [
+          0.2592642960770526,
+          0.38752026605354306
+        ],
+        "r_at_1": 0.52,
+        "r_at_5": 0.875
+      },
+      "random": {
+        "mode_acc": 0.335,
+        "mode_ci95": [
+          0.2732398096874265,
+          0.4029793722656195
+        ],
+        "density_acc": 0.275,
+        "context_acc": 0.105,
+        "context_ci95": [
+          0.0697069624619373,
+          0.15518138221353622
+        ],
+        "r_at_1": 0.0,
+        "r_at_5": 0.03
+      }
+    }
+  },
+  "agreement": {
+    "fitted": {
+      "pairwise_context": 0.2541666666666667,
+      "pairwise_mode": 0.4941666666666667,
+      "all_four_context": 0.05,
+      "all_four_mode": 0.19
+    },
+    "ridge": {
+      "pairwise_context": 0.2833333333333333,
+      "pairwise_mode": 0.5108333333333333,
+      "all_four_context": 0.065,
+      "all_four_mode": 0.21
+    },
+    "random": {
+      "pairwise_context": 0.12666666666666668,
+      "pairwise_mode": 0.3441666666666667,
+      "all_four_context": 0.0,
+      "all_four_mode": 0.04
+    }
+  },
+  "g1": {
+    "per_eye": {
+      "eyeA": {
+        "wilson_lower": 0.46586521028994954,
+        "beats_chance_and_majority": true,
+        "boot_diff_vs_random_ci95": [
+          0.05,
+          0.23
+        ],
+        "beats_random": true
+      },
+      "eyeB": {
+        "wilson_lower": 0.46586521028994954,
+        "beats_chance_and_majority": true,
+        "boot_diff_vs_random_ci95": [
+          0.17,
+          0.36
+        ],
+        "beats_random": true
+      }
+    },
+    "pass": true,
+    "method": "procrustes",
+    "k": 32
+  }
+}

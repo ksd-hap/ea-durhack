@@ -1,5 +1,6 @@
 // Dev harness for Role 2: exercises runtime.js and shows telemetry as a table.
 import { createRuntime } from '../runtime.js';
+import { createMetrics } from '../metrics.js';
 
 const $ = (s) => document.querySelector(s);
 const log = (...a) => {
@@ -17,6 +18,23 @@ let randRot = false;
 const rt = await createRuntime({ seed: 0 });
 log('workers ready:', rt.agentIds.join(', '));
 for (const id of rt.agentIds) state[id] = { ctx: null, rx: 0, status: null, ghosts: 0, notes: 0 };
+
+// The metrics panel, computed ONLY by web/metrics.js from telemetry: the same code the
+// simulator uses for the slides. Role 4: this is the pattern for the Stage's panel.
+const metrics = createMetrics({ rollingBars: 8 });
+rt.onTelemetry((m) => metrics.ingest(m, Date.now()));
+const pct = (x) => (x === null || x === undefined ? '-' : `${(100 * x).toFixed(0)}%`);
+setInterval(() => {
+  const s = metrics.snapshot(Date.now());
+  const r = s.rolling;
+  const melkor = Object.entries(s.agents).map(([id, a]) => `${id}:${a.melkor}`).join('  ');
+  $('#metrics').textContent =
+    `phase ${s.phase} · bar ${s.bar ?? '-'} · messages received (10 s) ${s.rxLast10s}\n` +
+    `scene ${s.scene ? `${s.scene.id} truth ${s.scene.truth.mode}/${s.scene.truth.density}` : '-'}\n` +
+    `rolling ${r.bars} bars: accuracy ${pct(r.accuracy)} · mode ${pct(r.mode_accuracy)} · agreement ${pct(r.agreement)} · ` +
+    `consonance ${pct(r.consonance)} · ghost match ${pct(r.prediction_match)}\n` +
+    `Melkor status  ${melkor}`;
+}, 500);
 
 rt.onTelemetry((m) => {
   const s = state[m.from];

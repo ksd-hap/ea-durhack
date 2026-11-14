@@ -95,7 +95,8 @@ export function createAgent({
   const suspected = {};
   const flagged = {};
   const peerSuspicion = {}; // target -> { from -> { suspect, score, bar } }
-  const roguePcs = {}; // peer -> [{ bar, pc }]
+  const roguePcs = {}; // peer -> [{ bar, pc }] recent unexplained outside notes (feeds absorb)
+  const rogueSeen = {}; // peer -> Set(absolute pc) every unexplained outside pc since reset
   for (const p of peers) {
     ema[p] = 0;
     aboveBars[p] = 0;
@@ -103,6 +104,27 @@ export function createAgent({
     flagged[p] = false;
     peerSuspicion[p] = {};
     roguePcs[p] = [];
+    rogueSeen[p] = new Set();
+  }
+
+  // An outside pitch class (Eb / G#) from `from` is EXPLAINED, and so is not evidence
+  // against it, only when I already suspect or have flagged some OTHER peer that has been
+  // playing that same pc. Then `from` is plausibly answering that rogue with an absorb
+  // chord (Eb major contains Eb; E7 contains G#). Melkor can't exploit this: before anyone
+  // is suspected nothing is excused, and the suspect's own notes never are. No sender-side
+  // "I'm absorbing" tag exists for a rogue to fake: the excuse is the receiver's own evidence.
+  //
+  // Under heavy loss I may have missed the rogue's notes yet still hear that a peer
+  // suspects it. So a recent suspicion of some q != from, REPORTED BY some r != from,
+  // also explains it. (r != from: a rogue's own accusations never excuse the rogue.)
+  function explainedByAbsorb(from, pc) {
+    return peers.some((q) => {
+      if (q === from) return false;
+      if ((suspected[q] || flagged[q]) && rogueSeen[q].has(pc)) return true;
+      return Object.entries(peerSuspicion[q]).some(
+        ([r, s]) => r !== from && s.suspect && nowBar - s.bar <= DETECT.suspicionTtlBars,
+      );
+    });
   }
 
   function ownCtxAt(bar) {
@@ -113,7 +135,7 @@ export function createAgent({
 
   function onView(bar, vec) {
     const z = embed(prep, vec, useRandomRotation);
-    const s = moodScores(prep, anc, z);
+    const s = moodScores(prep, anc, z, useRandomRotation);
     const vLevel = levelWithHysteresis(s.valence, th.valence, th.h, lastLevels.v);
     const aLevel = levelWithHysteresis(s.arousal, th.arousal, th.h, lastLevels.a);
     lastLevels = { v: vLevel, a: aLevel };
@@ -148,9 +170,13 @@ export function createAgent({
         const list = received.get(msg.bar) ?? [];
         list.push(msg);
         received.set(msg.bar, list);
-        const outside = isOutsideUnion(msg.pitch);
-        ema[from] = (1 - DETECT.alpha) * ema[from] + DETECT.alpha * (outside ? 1 : 0);
-        if (outside) roguePcs[from].push({ bar: msg.bar, pc: absPc(msg.pitch) });
+        const pc = absPc(msg.pitch);
+        const evidence = isOutsideUnion(msg.pitch) && !explainedByAbsorb(from, pc);
+        ema[from] = (1 - DETECT.alpha) * ema[from] + DETECT.alpha * (evidence ? 1 : 0);
+        if (evidence) {
+          roguePcs[from].push({ bar: msg.bar, pc });
+          rogueSeen[from].add(pc);
+        }
         updatePeerModel(from, msg);
         break;
       }
@@ -355,6 +381,7 @@ export function createAgent({
         flagged[p] = false;
         peerSuspicion[p] = {};
         roguePcs[p] = [];
+        rogueSeen[p] = new Set();
       }
     },
     inspect() {

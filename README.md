@@ -9,7 +9,13 @@ Four AI agents that were never trained together compose music and paint a shared
 cd web
 python -m http.server 8000
 ```
-Open http://localhost:8000. Workers don't load over `file://`.
+Open http://localhost:8000. Workers don't load over `file://`. Each run gets private channels, so stray tabs can't interfere, but keep one Stage tab open for a single sound output. **Never create a `BroadcastChannel` yourself.** Use the runtime API (`rt.onTelemetry`, etc.); CI rejects hard-coded channels.
+
+**While developing, use the no-cache server instead.** Plain `http.server` lets the browser keep running your *old* JavaScript after an edit:
+```bash
+python tools/serve.py
+```
+This serves `web/` on :8000. Add `--root .` to serve the repo root.
 
 Dev pages (serve from the **repo root** instead, so `sim/` is reachable):
 - `http://localhost:8000/web/dev/selftest.html` runs the JS-vs-NumPy check, the false-positive test and the detection test in the browser, with no Node needed.
