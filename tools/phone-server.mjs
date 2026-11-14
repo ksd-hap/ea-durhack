@@ -29,13 +29,18 @@ const now = () => performance.timeOrigin + performance.now();
 
 // ---- static files (no caching: the browser always gets the JS you just saved) ----
 // The laptop's addresses on the network, so the Stage (opened as localhost) can print QR codes
-// that phones can actually reach. Hotspot addresses (Windows: 192.168.137.x) are listed first.
+// that phones can actually reach (best guess first; the Stage's QR panel can switch).
 function lanAddresses() {
   const ips = Object.values(networkInterfaces()).flat().filter((i) => i && i.family === 'IPv4' && !i.internal).map((i) => i.address);
-  return ips.sort((a, b) => (b.startsWith('192.168.137.') ? 1 : 0) - (a.startsWith('192.168.137.') ? 1 : 0));
+  // Most likely network for phones first: a phone's hotspot, then the laptop's own hotspot, then
+  // other Wi-Fi; big venue networks (10.x, e.g. eduroam) last, since they usually isolate devices.
+  const rank = (ip) => (ip.startsWith('172.20.10.') || ip.startsWith('192.168.43.') ? 0 : ip.startsWith('192.168.137.') ? 1 : ip.startsWith('10.') ? 3 : 2);
+  return ips.sort((a, b) => rank(a) - rank(b));
 }
 
 const server = createServer(async (req, res) => {
+  const from = req.socket.remoteAddress?.replace('::ffff:', '');
+  if (from && from !== '127.0.0.1' && from !== '::1') console.log(`[http] ${from} ${req.url}`); // phones show up here
   try {
     let path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
     if (path === '/ip') {
@@ -82,7 +87,7 @@ function onMessage(conn, text) {
     case 'unsub': subs.get(m.ch)?.delete(conn); conn.chans.delete(m.ch); break;
     case 'pub': for (const c of subs.get(m.ch) ?? []) if (c !== conn) send(c, { op: 'msg', ch: m.ch, data: m.data }); break;
     case 'time': send(conn, { op: 'time', id: m.id, t1: m.t1, ts: now() }); break;
-    case 'announce': announcedSession = m.session; console.log(`[relay] session announced: ${m.session}`); break;
+    case 'announce': if (announcedSession !== m.session) console.log(`[relay] Stage session: ${m.session}`); announcedSession = m.session; break;
     case 'session?': send(conn, { op: 'session', session: announcedSession }); break;
     case 'hello': conn.label = String(m.label ?? '').slice(0, 40); console.log(`[relay] #${conn.id} is ${conn.label}`); break;
     default:
