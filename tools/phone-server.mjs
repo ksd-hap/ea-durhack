@@ -73,6 +73,7 @@ function frame(text) {
 
 const subs = new Map(); // channel -> Set(conn)
 let announcedSession = null;
+let announcer = null; // the connection of the Stage that owns the run
 let nextId = 1;
 
 function send(conn, obj) {
@@ -87,7 +88,18 @@ function onMessage(conn, text) {
     case 'unsub': subs.get(m.ch)?.delete(conn); conn.chans.delete(m.ch); break;
     case 'pub': for (const c of subs.get(m.ch) ?? []) if (c !== conn) send(c, { op: 'msg', ch: m.ch, data: m.data }); break;
     case 'time': send(conn, { op: 'time', id: m.id, t1: m.t1, ts: now() }); break;
-    case 'announce': if (announcedSession !== m.session) console.log(`[relay] Stage session: ${m.session}`); announcedSession = m.session; break;
+    case 'announce':
+      // One Stage owns the run. A second Stage tab announcing a different session would make phones
+      // join whichever spoke last, so it is ignored (with a warning) until the first one goes away.
+      if (announcer && announcer !== conn && !announcer.closed && announcedSession !== m.session) {
+        if (!conn.warnedSecondStage) console.log(`[relay] WARNING: a second Stage (#${conn.id}) is open; ignoring it. Close extra Stage tabs.`);
+        conn.warnedSecondStage = true;
+        break;
+      }
+      if (announcedSession !== m.session) console.log(`[relay] Stage session: ${m.session} (#${conn.id})`);
+      announcer = conn;
+      announcedSession = m.session;
+      break;
     case 'session?': send(conn, { op: 'session', session: announcedSession }); break;
     case 'hello': conn.label = String(m.label ?? '').slice(0, 40); console.log(`[relay] #${conn.id} is ${conn.label}`); break;
     default:
