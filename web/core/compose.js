@@ -1,9 +1,8 @@
 // compose.js — pure music logic. [Role 3]
 //
-// Normal Architect and Melodist composition implemented.
-// Melodist defence included.
-// Still to implement: Weaver, ordinary Pulse, absorption,
-// and Architect defence.
+// Implemented: normal Architect, Melodist and Weaver.
+// Melodist and Weaver defence included.
+// Remaining: ordinary Pulse, absorption and Architect defence.
 //
 // Contract:
 // compose({ id, role, bar, ctx, state, rng, predictions,
@@ -12,8 +11,8 @@
 //
 // Beats start at 0. Durations are in beats. Pitches are MIDI.
 // The wrapper adds from, bar, at, role and rogue.
-// State is read-only: always return a new object.
-// Use only the supplied seeded rng for randomness.
+// Never mutate incoming state.
+// Use only the supplied seeded rng.
 // No audio, timers, networking or browser dependencies.
 
 import { SCALES, relPc } from './theory.js';
@@ -47,14 +46,13 @@ const RANGE = {
   pulse: [74, 86],
 };
 
-// Musical beats 1 and 3 are represented by 0 and 2.
 const MELODY_BEATS = {
   1: [0, 2],
   2: [0, 1, 2, 3],
   3: [0, 0.5, 1, 2, 2.5, 3],
 };
 
-// Four-note motifs stored as offsets in scale steps.
+// Four-note motifs expressed in scale steps.
 const MOTIFS = [
   [0, 1, 2, 1],
   [0, -1, -2, -1],
@@ -113,7 +111,6 @@ function composeMelodist({ bar, ctx, state, rng, defend }) {
   const previousPitch =
     state.lastPitch ?? state.prevNotes?.at(-1) ?? 67;
 
-  // Defence: two strong, simple D/A notes per bar.
   if (defend) {
     const first = nearestPitch([62, 69, 74], previousPitch);
     const second = first === 69 ? 74 : 69;
@@ -150,18 +147,17 @@ function composeMelodist({ bar, ctx, state, rng, defend }) {
   const sceneBar = bar % 8;
   const sceneStart = bar - sceneBar;
 
-  // Keep one motif for the whole scene.
   const motif =
     state.motifBar === sceneStart && state.motif?.length === 4
       ? [...state.motif]
       : [...pick(rng, MOTIFS)];
 
-  // First appearance, then returns in scene bars 3 and 5.
+  // Appear in scene bar 1, return in bars 3 and 5.
   const repeatMotif =
     sceneBar === 0 || sceneBar === 2 || sceneBar === 4;
 
-  // Choose a starting note that preserves the motif's shape,
-  // stays in range, and puts its strong beats on chord tones.
+  // Preserve motif shape while keeping strong beats
+  // on chord tones and every note inside the register.
   const anchors = chordPool.filter((pitch) => {
     const index = pool.indexOf(pitch);
 
@@ -193,9 +189,6 @@ function composeMelodist({ bar, ctx, state, rng, defend }) {
     let target;
 
     if (repeatMotif) {
-      // At density 1, use the motif's two strong-beat notes.
-      // At density 2, use all four notes.
-      // At density 3, add notes between the main motif notes.
       const position = Math.floor(beat);
       let offset = motif[position];
 
@@ -212,7 +205,6 @@ function composeMelodist({ bar, ctx, state, rng, defend }) {
 
       target = pool[index];
     } else {
-      // Between motif returns, vary the line gently.
       const currentIndex = pool.indexOf(
         nearestPitch(pool, lastPitch),
       );
@@ -259,6 +251,106 @@ function composeMelodist({ bar, ctx, state, rng, defend }) {
   };
 }
 
+function composeWeaver({
+  bar,
+  ctx,
+  state,
+  predictions = [],
+  lastBarNotes = [],
+  defend,
+}) {
+  const chord = chordForBar(ctx.mode, bar);
+  const allowed = defend ? [2, 9] : chord;
+  const pool = [];
+
+  for (let pitch = 57; pitch <= 69; pitch++) {
+    if (allowed.includes(pitch % 12)) {
+      pool.push(pitch);
+    }
+  }
+
+  const density = defend ? 1 : ctx.density;
+  const beats = {
+    1: [0],
+    2: [0, 2],
+    3: [0, 1.5, 3],
+  }[density];
+
+  const preferredPcs = [
+    chord[1],
+    chord[3],
+  ].filter(Number.isInteger);
+
+  const notes = [];
+  let lastPitch =
+    state.lastPitch ?? state.prevNotes?.at(-1) ?? 62;
+
+  for (let i = 0; i < beats.length; i++) {
+    const beat = beats[i];
+    const slot = Math.floor(beat * 2);
+
+    const predicted = predictions.filter(
+      (note) =>
+        note.role === 'melodist' &&
+        note.bar === bar &&
+        note.slot === slot,
+    );
+
+    const recent = lastBarNotes.filter(
+      (note) =>
+        note.role === 'melodist' &&
+        note.bar === bar - 1 &&
+        Math.floor(note.beat * 2) === slot,
+    );
+
+    // Use last bar's notes when predictions are unavailable.
+    const blocked = new Set(
+      predicted.length
+        ? predicted.map((note) => note.pc)
+        : recent.map((note) => note.pitch % 12),
+    );
+
+    const clear = pool.filter(
+      (pitch) => !blocked.has(pitch % 12),
+    );
+
+    // Keep a valid chord tone if every option clashes.
+    const available = clear.length ? clear : pool;
+
+    const preferred = defend
+      ? []
+      : available.filter(
+          (pitch) => preferredPcs.includes(pitch % 12),
+        );
+
+    const pitch = nearestPitch(
+      preferred.length ? preferred : available,
+      lastPitch,
+    );
+
+    const nextBeat = beats[i + 1] ?? 4;
+
+    notes.push({
+      beat,
+      pitch,
+      dur: (nextBeat - beat) * 0.95,
+      vel: 0.42,
+    });
+
+    lastPitch = pitch;
+  }
+
+  return {
+    notes,
+    state: {
+      ...state,
+      lastBar: bar,
+      lastPitch,
+      prevNotes: notes.map((note) => note.pitch),
+    },
+  };
+}
+
 export function compose({
   role,
   bar,
@@ -267,11 +359,12 @@ export function compose({
   rng,
   rogue,
   defend,
+  predictions = [],
+  lastBarNotes = [],
 }) {
   const notes = [];
 
   if (rogue) {
-    // Melkor plays on two randomly selected beats.
     const beats = [0, 1, 2, 3];
 
     for (let i = beats.length - 1; i > 0; i--) {
@@ -304,7 +397,6 @@ export function compose({
 
       const padPitches = [...padVoicing];
 
-      // Add the chord's ninth at density 3.
       if (ctx.density === 3) {
         const ninthPc = (chord[0] + 2) % 12;
 
@@ -316,7 +408,6 @@ export function compose({
         }
       }
 
-      // Low D drone, held for two bars.
       notes.push({
         beat: 0,
         pitch: 38,
@@ -350,8 +441,17 @@ export function compose({
       rng,
       defend,
     });
+  } else if (role === 'weaver') {
+    return composeWeaver({
+      bar,
+      ctx,
+      state,
+      predictions,
+      lastBarNotes,
+      defend,
+    });
   } else {
-    // Existing placeholder for Weaver and ordinary Pulse.
+    // Existing placeholder for ordinary Pulse.
     const [lo, hi] = RANGE[role] ?? [60, 72];
     const allowed = defend ? [0, 7] : SCALES[ctx.mode];
     const pool = [];
