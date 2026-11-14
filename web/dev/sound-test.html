@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EÄ sound test</title>
+  <style>
+    body {
+      background: #10151c;
+      color: #edf2f7;
+      font: 16px system-ui, sans-serif;
+      max-width: 760px;
+      margin: 40px auto;
+      padding: 0 20px;
+    }
+    button, select {
+      font: inherit;
+      padding: 8px 12px;
+      margin: 6px;
+    }
+    label {
+      display: inline-block;
+      margin: 8px;
+    }
+    fieldset {
+      margin: 20px 0;
+      border: 1px solid #64748b;
+      border-radius: 8px;
+    }
+    #status {
+      line-height: 1.7;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <h1>EÄ sound test</h1>
+  <p>Choose settings, then Start. Stop before changing settings.</p>
+
+  <fieldset>
+    <legend>Music</legend>
+
+    <label>
+      <input id="cycle" type="checkbox" checked>
+      Cycle all nine contexts
+    </label>
+    <br>
+
+    <label>
+      Mode
+      <select id="mode">
+        <option value="ionian">Ionian</option>
+        <option value="dorian">Dorian</option>
+        <option value="aeolian">Aeolian</option>
+      </select>
+    </label>
+
+    <label>
+      Density
+      <select id="density">
+        <option value="1">1 — sparse</option>
+        <option value="2">2 — medium</option>
+        <option value="3">3 — busy</option>
+      </select>
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Voices — untick others to hear one voice</legend>
+    <label>
+      <input type="checkbox" data-role="architect" checked>
+      Architect
+    </label>
+    <label>
+      <input type="checkbox" data-role="melodist" checked>
+      Melodist
+    </label>
+    <label>
+      <input type="checkbox" data-role="weaver" checked>
+      Weaver
+    </label>
+    <label>
+      <input type="checkbox" data-role="pulse" checked>
+      Pulse
+    </label>
+  </fieldset>
+
+  <button id="start">Start</button>
+  <button id="stop" disabled>Stop</button>
+
+  <p id="status" role="status">Ready.</p>
+  <p>
+    Each context lasts eight bars, about 27 seconds.
+    One full cycle takes four minutes.
+  </p>
+
+  <script src="../vendor/tone.js"></script>
+
+  <script type="module">
+    import { createAudio } from '../audio.js';
+    import { compose } from '../core/compose.js';
+    import { mulberry32, seedFor } from '../core/rng.js';
+
+    const startButton = document.querySelector('#start');
+    const stopButton = document.querySelector('#stop');
+    const cycle = document.querySelector('#cycle');
+    const mode = document.querySelector('#mode');
+    const density = document.querySelector('#density');
+    const status = document.querySelector('#status');
+
+    const voiceBoxes = [
+      ...document.querySelectorAll('[data-role]'),
+    ];
+
+    const agents = [
+      ['eyeA', 'architect'],
+      ['poetA', 'melodist'],
+      ['eyeB', 'weaver'],
+      ['poetB', 'pulse'],
+    ];
+
+    const contexts = [
+      'ionian', 'dorian', 'aeolian',
+    ].flatMap((mode) =>
+      [1, 2, 3].map((density) => ({ mode, density })),
+    );
+
+    const beatMs = 60000 / 72;
+    const barMs = beatMs * 4;
+    const now = () =>
+      performance.timeOrigin + performance.now();
+
+    let audio = null;
+    let timer = null;
+    let playing = false;
+
+    function updateControls(busy) {
+      startButton.disabled = busy;
+      stopButton.disabled = !playing;
+      cycle.disabled = busy;
+      mode.disabled = busy || cycle.checked;
+      density.disabled = busy || cycle.checked;
+
+      for (const box of voiceBoxes) {
+        box.disabled = busy;
+      }
+    }
+
+    cycle.addEventListener('change', () => {
+      updateControls(false);
+    });
+
+    function stop() {
+      clearInterval(timer);
+      timer = null;
+      audio?.dispose();
+      audio = null;
+      playing = false;
+      updateControls(false);
+    }
+
+    stopButton.addEventListener('click', () => {
+      stop();
+      status.textContent =
+        'Stopped. Adjust settings and Start to replay.';
+    });
+
+    startButton.addEventListener('click', async () => {
+      updateControls(true);
+      status.textContent =
+        'Preparing instruments and reverb…';
+
+      try {
+        audio = createAudio();
+        await audio.start();
+
+        playing = true;
+        updateControls(true);
+
+        const t0 = now() + 1500;
+        let nextBar = 1;
+        let previousNotes = [];
+
+        const states = Object.fromEntries(
+          agents.map(([id]) => [id, {}]),
+        );
+
+        const random = Object.fromEntries(
+          agents.map(([id]) => [
+            id,
+            mulberry32(seedFor(id, 0)),
+          ]),
+        );
+
+        const enabled = new Set(
+          voiceBoxes
+            .filter((box) => box.checked)
+            .map((box) => box.dataset.role),
+        );
+
+        const contextFor = (bar) =>
+          cycle.checked
+            ? contexts[
+                Math.floor(bar / 8) % contexts.length
+              ]
+            : {
+                mode: mode.value,
+                density: Number(density.value),
+              };
+
+        function plan(bar) {
+          const notesThisBar = [];
+
+          for (const [id, role] of agents) {
+            const result = compose({
+              id,
+              role,
+              bar,
+              ctx: contextFor(bar),
+              state: states[id],
+              rng: random[id],
+              predictions: [],
+              lastBarNotes: previousNotes.filter(
+                (note) => note.from !== id,
+              ),
+              absorb: null,
+              defend: false,
+              rogue: false,
+            });
+
+            states[id] = result.state;
+
+            for (const note of result.notes) {
+              const event = {
+                ...note,
+                type: 'note',
+                from: id,
+                role,
+                bar,
+                rogue: false,
+                at:
+                  t0 +
+                  bar * barMs +
+                  note.beat * beatMs,
+              };
+
+              notesThisBar.push(event);
+
+              if (enabled.has(role)) {
+                audio.onNote(event);
+              }
+            }
+          }
+
+          previousNotes = notesThisBar;
+        }
+
+        function tick() {
+          try {
+            // During bar n, prepare bar n+1.
+            while (
+              now() >= t0 + (nextBar - 1) * barMs
+            ) {
+              plan(nextBar++);
+            }
+
+            const bar = Math.max(
+              0,
+              Math.floor((now() - t0) / barMs),
+            );
+
+            const ctx = contextFor(bar);
+            const stats = audio.getStats();
+            const phase =
+              now() < t0 ? 'Starting…' : 'Playing';
+
+            status.textContent =
+              `${phase} — ${ctx.mode}, ` +
+              `density ${ctx.density}, bar ${bar + 1}\n` +
+              `Notes scheduled: ${stats.scheduled} | ` +
+              `Late: ${stats.late} | ` +
+              `Invalid: ${stats.invalid}`;
+          } catch (error) {
+            stop();
+            status.textContent =
+              `Error: ${error.message}`;
+          }
+        }
+
+        // Prepare the opening bar before playback begins.
+        plan(0);
+        tick();
+        timer = setInterval(tick, 50);
+      } catch (error) {
+        stop();
+        status.textContent = `Error: ${error.message}`;
+      }
+    });
+
+    window.addEventListener('pagehide', stop);
+    updateControls(false);
+  </script>
+</body>
+</html>
+
