@@ -79,6 +79,7 @@ A worked example lives in `web/core/compose.example.json`, and `tests/compose.co
 - `predictions`: `[{peer, role, bar, slot, beat, pc, pitch, count}]`. `slot` is the eighth-note slot (0 to 7), `beat = slot/2`, and `pc` is absolute (C = 0).
 - `lastBarNotes` holds the NoteEvents received from peers for `bar - 1`.
 - `absorb`: `null | {pcs: [absolute pcs]}`, e.g. 3 = E♭ and 8 = G♯.
+- **Honest notes may leave the three D modes only to answer a rogue.** The only pitch classes outside all three modes are E♭ and G♯, and they are the Melkor detector's evidence. An honest note may use them **only** when `absorb` is set, and only the pitch classes in `absorb.pcs`. So the Neapolitan (E♭ major) answering a rogue E♭ and E7 answering a rogue G♯ are fine; any other outside note would get the agent flagged. The detector excuses an E♭/G♯ from agent X only when the receiver already suspects another agent of playing that note, or hears another agent reporting one (never on X's own word). `tests/compose.contract.test.mjs` checks this rule on every PR. **[AGREED fix; Role 1 found the conflict]**
 - Output notes: `beat` is 0-based in [0,4) (musical beats 1 and 3 are 0 and 2), `pitch` is MIDI, `dur` is in beats and > 0, and `vel` is in (0,1].
 - The **agent wrapper** adds `from`, `bar`, `at` (absolute ms), `role` and `rogue`.
 - Pure: no audio, timers, browser APIs or `Math.random`. That way it also runs in the simulator.

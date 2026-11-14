@@ -23,10 +23,11 @@ export const EVENT_BAR = 16;
  * @param {number} o.loss      0..1
  * @param {boolean} o.rogue
  * @param {number} o.seed
+ * @param {Function} [o.compose]  override compose() (default: web/core/compose.js)
  */
-export function runOne({ data, scenes, method, loss, rogue, seed, eventBar = EVENT_BAR }) {
+export function runOne({ data, scenes, method, loss, rogue, seed, eventBar = EVENT_BAR, compose }) {
   const agents = AGENT_IDS.map((id) =>
-    createAgent({ id, params: data.agents[id], anchors: data.anchors, thresholds: data.thresholds, seed }),
+    createAgent({ id, params: data.agents[id], anchors: data.anchors, thresholds: data.thresholds, seed, ...(compose ? { compose } : {}) }),
   );
   for (const a of agents) {
     if (method === 'baseline') a.setBaseline(true);

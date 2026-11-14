@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { compose } from '../web/core/compose.js';
 import { mulberry32, seedFor } from '../web/core/rng.js';
+import { isOutsideUnion, absPc } from '../web/core/theory.js';
 
 const { examples } = JSON.parse(readFileSync(new URL('../web/core/compose.example.json', import.meta.url), 'utf8'));
 
@@ -36,6 +37,18 @@ for (const ex of examples) {
     checkNotes(out.notes, ex.name);
     assert.ok(out.state && typeof out.state === 'object', 'must return a state object');
     assert.deepEqual(ex.input, frozen, 'must not mutate its input (including state)');
+  });
+
+  test(`honest notes leave the D-modes only to answer a rogue (absorb.pcs) for: ${ex.name}`, () => {
+    // Eb and G# (the only pitch classes outside all three modes) are the detector's rogue
+    // evidence. An honest agent may play them ONLY inside an absorb answer, and only the
+    // pitch classes it was given in absorb.pcs; anything else looks exactly like Melkor.
+    if (ex.input.rogue) return;
+    const out = compose({ ...structuredClone(ex.input), rng: mulberry32(seedFor(ex.rngSeed.id, ex.rngSeed.seed)) });
+    const allowed = new Set(ex.input.absorb?.pcs ?? []);
+    for (const n of out.notes) {
+      if (isOutsideUnion(n.pitch)) assert.ok(allowed.has(absPc(n.pitch)), `${ex.name}: honest pitch ${n.pitch} is outside the modes and not in absorb.pcs`);
+    }
   });
 
   test(`compose() is deterministic given the rng for: ${ex.name}`, () => {
