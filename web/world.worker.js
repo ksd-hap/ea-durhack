@@ -4,7 +4,7 @@
 // agent ONLY that agent's own view, on that agent's own sense channel (its "eyes"). The
 // scene id, truth, caption and thumbnail go to telemetry only, for the Stage's metrics.
 //
-// Timing: at hub start, t0 (= now + 2000 ms, chosen by the hub) is bar 0. Scene i starts
+// Timing: at hub start, t0 (= now + START_LEAD_MS = 5 s, chosen by the hub) is bar 0. Scene i starts
 // at bar 8i. Views are sent LOOKAHEAD_BARS before the scene starts, because agents plan
 // one bar ahead: the view for bar 8i must be in hand when bar 8i is planned, which is
 // at the start of bar 8i-1. Contexts are keyed by bar, so arriving early is harmless.
@@ -20,6 +20,7 @@ let scenes = null;
 let t0 = null;
 let nextView = 0; // next scene index whose views are not yet sent
 let nextAnnounce = 0; // next scene index not yet announced on telemetry
+let lastRefreshBar = null; // last bar on which the current views were re-sent
 
 const senses = Object.fromEntries(AGENT_IDS.map((id) => [id, new BroadcastChannel(`ea-sense-${id}`)]));
 const telemetry = createTelemetrySender();
@@ -29,9 +30,14 @@ let hub = new BroadcastChannel('ea-hub');
 hub.onmessage = (e) => {
   const h = e.data ?? {};
   if (h.type === 'start') {
-    t0 = h.t0;
-    nextView = 0;
-    nextAnnounce = 0;
+    // Repeated until acknowledged, so idempotent: only a new t0 restarts the stream.
+    if (h.t0 !== t0) {
+      t0 = h.t0;
+      nextView = 0;
+      nextAnnounce = 0;
+      lastRefreshBar = null;
+    }
+    telemetry.send({ type: 'started', from: 'world', t0 });
   } else if (h.type === 'end') {
     hub.close();
     hub = null;
@@ -62,14 +68,26 @@ function tick() {
   if (t0 === null) return;
   const cur = barAt(t0, now());
 
-  while (cur >= nextView * BARS_PER_SCENE - LOOKAHEAD_BARS) {
-    const startBar = nextView * BARS_PER_SCENE;
-    const s = sceneFor(nextView);
+  const sendViews = (i) => {
+    const s = sceneFor(i);
     for (const id of AGENT_IDS) {
-      senses[id].postMessage({ type: 'view', bar: startBar, vec: s.views[id] });
+      senses[id].postMessage({ type: 'view', bar: i * BARS_PER_SCENE, vec: s.views[id] });
     }
+  };
+
+  let sentNew = false;
+  while (cur >= nextView * BARS_PER_SCENE - LOOKAHEAD_BARS) {
+    sendViews(nextView);
     nextView++;
+    sentNew = true;
   }
+
+  // Eyes keep seeing: once per bar, re-send the latest scene's views. A view for the same
+  // bar gives the agent the same context, so this is harmless, and it means one lost
+  // message (e.g. on a channel that was still being set up) can't leave an agent on the
+  // default mood for a whole scene.
+  if (!sentNew && nextView > 0 && cur !== lastRefreshBar) sendViews(nextView - 1);
+  lastRefreshBar = cur;
 
   while (cur >= nextAnnounce * BARS_PER_SCENE) {
     const startBar = nextAnnounce * BARS_PER_SCENE;
