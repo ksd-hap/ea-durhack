@@ -18,10 +18,12 @@ Expected values in testvectors.json are computed from the ROUNDED params that th
 read, so the JS-vs-NumPy check isolates arithmetic bugs from rounding. Role 1: do the same.
 
 Usage (from repo root):  py tools/make_fake_data.py      (or python3)
+Refuses to overwrite real (non-fake) exports unless you pass --force.
 """
 
 import json
 import os
+import sys
 
 import numpy as np
 
@@ -32,6 +34,13 @@ NOISE = {"eyeA": 0.45, "poetA": 0.30, "eyeB": 0.60, "poetB": 0.50}
 N_CAL, N_EVAL, N_DEMO = 400, 200, 48
 DEC = 5
 MODES = ["aeolian", "dorian", "ionian"]
+
+_existing = os.path.join(ROOT, "web", "data", "agents.json")
+if os.path.exists(_existing) and "--force" not in sys.argv:
+    with open(_existing, encoding="utf-8") as _f:
+        if not json.load(_f).get("fake"):
+            sys.exit("web/data/agents.json holds REAL data (Role 1 export). Refusing to overwrite it with fake data; "
+                     "pass --force if you really mean to.")
 
 rng = np.random.default_rng(0)
 
