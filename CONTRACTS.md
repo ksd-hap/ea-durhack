@@ -63,15 +63,21 @@ createAgent({ id, role, params, anchors, thresholds, seed })
   .setRandomRotation(on) .resetFlags() .inspect()     // [PROPOSED extensions]
 ```
 
-## compose() (Role 3 owns `web/core/compose.js`; Role 2 calls it) **[PROPOSED signature]**
+## compose() (Role 3 owns `web/core/compose.js`; Role 2 calls it) **[AGREED with Role 3 — awaiting final ack]**
 ```js
-compose({ id, role, bar, ctx, rng, memory, predictions, lastBarNotes, absorb, defend, rogue })
-  -> [{ beat, pitch, vel, dur }]
+compose({ id, role, bar, ctx, state, rng, predictions, lastBarNotes, absorb, defend, rogue })
+  -> { notes: [{ beat, pitch, dur, vel }], state }
 ```
-- `predictions`: `[{peer, role, bar, slot, beat, pc, pitch, count}]`, where `pc` is absolute (C = 0).
+A worked example lives in `web/core/compose.example.json`, and `tests/compose.contract.test.mjs` checks the real `compose()` against it on every PR.
+- `ctx` is `{mode, density}`, the agent's **own** context. The chord slot is `floor((bar % 8) / 2)`.
+- `state` is whatever compose returned last bar (`{}` the first time), holding things like the motif and previous notes. Don't mutate it; return a new one.
+- `rng` is a seeded `() => [0,1)` owned by the agent, and the only source of randomness.
+- `predictions`: `[{peer, role, bar, slot, beat, pc, pitch, count}]`. `slot` is the eighth-note slot (0 to 7), `beat = slot/2`, and `pc` is absolute (C = 0).
+- `lastBarNotes` holds the NoteEvents received from peers for `bar - 1`.
 - `absorb`: `null | {pcs: [absolute pcs]}`, e.g. 3 = E♭ and 8 = G♯.
-- `memory`: a per-agent object that compose may mutate.
-- Pure; use only `rng`.
+- Output notes: `beat` is 0-based in [0,4) (musical beats 1 and 3 are 0 and 2), `pitch` is MIDI, `dur` is in beats and > 0, and `vel` is in (0,1].
+- The **agent wrapper** adds `from`, `bar`, `at` (absolute ms), `role` and `rogue`.
+- Pure: no audio, timers, browser APIs or `Math.random`. That way it also runs in the simulator.
 
 ## Runtime API for the Stage (`web/runtime.js`, Role 2)
 ```js

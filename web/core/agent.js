@@ -63,7 +63,7 @@ export function createAgent({
     h: thresholds.hysteresis ?? 0.1,
   };
   const rng = mulberry32(seedFor(id, seed));
-  const memory = {}; // private, owned by compose()
+  let musicState = {}; // compose()'s private state; it returns the updated copy each bar
 
   // Experimenter switches.
   let rogue = false;
@@ -264,13 +264,13 @@ export function createAgent({
     const lastBarNotes = received.get(bar - 1) ?? [];
     for (const k of received.keys()) if (k < bar - 4) received.delete(k);
 
-    const raw = compose({
+    const result = compose({
       id,
       role,
       bar,
       ctx,
       rng,
-      memory,
+      state: musicState,
       predictions,
       lastBarNotes,
       absorb,
@@ -279,6 +279,9 @@ export function createAgent({
     });
 
     const notes = [];
+    // Contract: compose returns { notes, state }. A bare array is accepted as notes-only.
+    const raw = Array.isArray(result) ? result : (result?.notes ?? []);
+    if (!Array.isArray(result) && result && result.state !== undefined) musicState = result.state;
     for (const n of raw) {
       if (!Number.isFinite(n.pitch) || !Number.isFinite(n.beat) || !(n.dur > 0)) continue;
       notes.push({
