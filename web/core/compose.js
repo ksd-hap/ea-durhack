@@ -1,8 +1,8 @@
 // compose.js — pure music logic. [Role 3]
 //
-// Implemented: normal Architect, Melodist and Weaver.
+// Implemented: all four normal musical roles.
 // Melodist and Weaver defence included.
-// Remaining: ordinary Pulse, absorption and Architect defence.
+// Remaining: absorption and Architect defence.
 //
 // Contract:
 // compose({ id, role, bar, ctx, state, rng, predictions,
@@ -37,13 +37,6 @@ const PROGRESSIONS = {
     [5, 9, 0],   // F major
     [0, 4, 7],   // C major
   ],
-};
-
-const RANGE = {
-  architect: [50, 62],
-  melodist: [62, 74],
-  weaver: [57, 69],
-  pulse: [74, 86],
 };
 
 const MELODY_BEATS = {
@@ -156,8 +149,6 @@ function composeMelodist({ bar, ctx, state, rng, defend }) {
   const repeatMotif =
     sceneBar === 0 || sceneBar === 2 || sceneBar === 4;
 
-  // Preserve motif shape while keeping strong beats
-  // on chord tones and every note inside the register.
   const anchors = chordPool.filter((pitch) => {
     const index = pool.indexOf(pitch);
 
@@ -303,7 +294,6 @@ function composeWeaver({
         Math.floor(note.beat * 2) === slot,
     );
 
-    // Use last bar's notes when predictions are unavailable.
     const blocked = new Set(
       predicted.length
         ? predicted.map((note) => note.pc)
@@ -314,7 +304,6 @@ function composeWeaver({
       (pitch) => !blocked.has(pitch % 12),
     );
 
-    // Keep a valid chord tone if every option clashes.
     const available = clear.length ? clear : pool;
 
     const preferred = defend
@@ -389,12 +378,7 @@ export function compose({
 
     if (bar % 2 === 0) {
       const chord = chordForBar(ctx.mode, bar);
-
-      padVoicing = choosePadVoicing(
-        chord,
-        state.padVoicing,
-      );
-
+      padVoicing = choosePadVoicing(chord, state.padVoicing);
       const padPitches = [...padVoicing];
 
       if (ctx.density === 3) {
@@ -427,47 +411,48 @@ export function compose({
 
     return {
       notes,
-      state: {
-        ...state,
-        lastBar: bar,
-        padVoicing,
-      },
+      state: { ...state, lastBar: bar, padVoicing },
     };
   } else if (role === 'melodist') {
     return composeMelodist({
-      bar,
-      ctx,
-      state,
-      rng,
-      defend,
+      bar, ctx, state, rng, defend,
     });
   } else if (role === 'weaver') {
     return composeWeaver({
-      bar,
-      ctx,
-      state,
-      predictions,
-      lastBarNotes,
-      defend,
+      bar, ctx, state, predictions, lastBarNotes, defend,
     });
   } else {
-    // Existing placeholder for ordinary Pulse.
-    const [lo, hi] = RANGE[role] ?? [60, 72];
-    const allowed = defend ? [0, 7] : SCALES[ctx.mode];
+    // Pulse: five-note subset of the current mode.
+    const pentatonic = ctx.mode === 'ionian'
+      ? [2, 4, 6, 9, 11] // D E F# A B
+      : [2, 5, 7, 9, 0]; // D F G A C
+
     const pool = [];
 
-    for (let pitch = lo; pitch <= hi; pitch++) {
-      if (allowed.includes(relPc(pitch))) {
+    for (let pitch = 74; pitch <= 86; pitch++) {
+      if (pentatonic.includes(pitch % 12)) {
         pool.push(pitch);
       }
     }
 
-    for (let beat = 0; beat < 4; beat++) {
+    const step = {
+      1: 1,
+      2: 0.5,
+      3: 0.25,
+    }[ctx.density];
+
+    const chance = ctx.density === 1 ? 0.3 : 0.6;
+
+    for (let beat = 0; beat < 4; beat += step) {
+      if (rng() >= chance) continue;
+
       notes.push({
         beat,
         pitch: pick(rng, pool),
-        dur: 1,
-        vel: 0.6,
+        dur: Math.min(0.3, step * 0.7),
+        vel:
+          (ctx.density === 3 ? 0.28 : 0.34) +
+          rng() * 0.06,
       });
     }
   }
