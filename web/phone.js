@@ -109,7 +109,7 @@ async function join(id) {
   try {
     // Nothing may be awaited before Tone.start(): iOS only unlocks sound synchronously inside the tap.
     if ('audioSession' in navigator) navigator.audioSession.type = 'playback'; // iOS 17+: play through the silent switch
-    audio = createAudio();
+    audio = createAudio({ voice: id, phoneSpeaker: true });
     await audio.start(); // its first statement calls Tone.start(), still inside the tap
   } catch (err) {
     $('#net').innerHTML = `<span class="bad">sound blocked (${err.message}). Tap again.</span>`;
