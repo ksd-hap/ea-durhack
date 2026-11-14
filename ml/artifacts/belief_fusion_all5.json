@@ -1,0 +1,100 @@
+{
+  "all4": {
+    "0.0": {
+      "accuracy": 0.495,
+      "mode_accuracy": 0.74,
+      "agreement": 1.0
+    },
+    "0.25": {
+      "accuracy": 0.45358750000000003,
+      "mode_accuracy": 0.7015625,
+      "agreement": 0.7181791666666666
+    },
+    "0.5": {
+      "accuracy": 0.41735625,
+      "mode_accuracy": 0.6656187500000001,
+      "agreement": 0.5536791666666666
+    },
+    "0.75": {
+      "accuracy": 0.38507499999999995,
+      "mode_accuracy": 0.63123125,
+      "agreement": 0.4108
+    },
+    "1.0": {
+      "accuracy": 0.35125,
+      "mode_accuracy": 0.59375,
+      "agreement": 0.2541666666666667
+    }
+  },
+  "eyes-only": {
+    "0.0": {
+      "accuracy": 0.305,
+      "mode_accuracy": 0.57,
+      "agreement": 1.0
+    },
+    "0.25": {
+      "accuracy": 0.29469999999999996,
+      "mode_accuracy": 0.56095,
+      "agreement": 0.7858250000000001
+    },
+    "0.5": {
+      "accuracy": 0.2859,
+      "mode_accuracy": 0.5518125,
+      "agreement": 0.5947499999999999
+    },
+    "0.75": {
+      "accuracy": 0.2779375,
+      "mode_accuracy": 0.54435,
+      "agreement": 0.42767499999999997
+    },
+    "1.0": {
+      "accuracy": 0.2675,
+      "mode_accuracy": 0.535,
+      "agreement": 0.285
+    }
+  },
+  "random": {
+    "0.0": {
+      "accuracy": 0.105,
+      "mode_accuracy": 0.35,
+      "agreement": 1.0
+    },
+    "0.25": {
+      "accuracy": 0.1102375,
+      "mode_accuracy": 0.34871250000000004,
+      "agreement": 0.5204916666666667
+    },
+    "0.5": {
+      "accuracy": 0.1121625,
+      "mode_accuracy": 0.35009999999999997,
+      "agreement": 0.33088333333333336
+    },
+    "0.75": {
+      "accuracy": 0.10961874999999999,
+      "mode_accuracy": 0.34804375,
+      "agreement": 0.226325
+    },
+    "1.0": {
+      "accuracy": 0.10625,
+      "mode_accuracy": 0.34375,
+      "agreement": 0.12666666666666668
+    }
+  },
+  "all4_eyes": {
+    "0.0": {
+      "accuracy": 0.495
+    },
+    "0.25": {
+      "accuracy": 0.441075
+    },
+    "0.5": {
+      "accuracy": 0.39282500000000004
+    },
+    "0.75": {
+      "accuracy": 0.33625
+    },
+    "1.0": {
+      "accuracy": 0.2675
+    }
+  }
+}
