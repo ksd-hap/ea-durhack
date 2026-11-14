@@ -28,7 +28,8 @@ const AGENTS = [ // CONTRACT: agent ids and roles from page 1 of the plan
   { id: 'eyeB',  role: 'weaver',    label: 'Eye-B' },
   { id: 'poetB', role: 'pulse',     label: 'Poet-B' },
 ];
-const ROGUE_TARGET = 'poetB';        // the agent the Corrupt button turns into Melkor
+// Who the Corrupt button turns into Melkor: chosen in the #rogue-target picker (default Poet-B,
+// the plan's demo target). CUSTOMISE the default in index.html (the "selected" option).
 const ROLLING_BARS = 8;              // CONTRACT: metrics.js window (8 bars, about 27 s), as agreed in CONTRACTS.md
 const METRICS_EVERY_MS = 500;        // CUSTOMISE: panel refresh rate
 const SEED = 0;                      // CUSTOMISE: runtime seed; change it for a different performance
@@ -197,7 +198,7 @@ function renderMetrics() {
     const badge = $(`#badge-${a.id}`);
     badge.querySelector('.b-ctx').textContent = fmtCtx(c);
     badge.title = c ? `${c.mode}, density ${c.density}. Click to see the painting through this agent's eyes` : '';
-    badge.dataset.rogue = state.rogueOn && a.id === ROGUE_TARGET ? '1' : '0';
+    badge.dataset.rogue = state.rogueOn && a.id === state.rogueId ? '1' : '0';
   }
   renderThreads();
   if (DEBUG) renderDebug(M);
@@ -294,10 +295,21 @@ $('#btn-cut').onclick = () => { rt.cut(); state.hubOpen = false; state.randomRot
 $('#btn-restore').onclick = () => { rt.restore(); setLoss(0); painter.setKintsugi(false); }; // restore also resets agents' sticky flags
 $('#loss').oninput = (e) => setLoss(parseFloat(e.target.value));
 
+// Corrupt: turn the agent chosen in the picker (#rogue-target) into Melkor; "random" picks one.
+// Any agent works (tested with Role 2's runtime): its notes go rogue and the others catch it.
+// The painter shows the damage in THAT agent's own part of the world.
 $('#btn-corrupt').onclick = () => {
-  state.rogueOn = !state.rogueOn;
-  rt.setRogue(ROGUE_TARGET, state.rogueOn);
-  if (!state.rogueOn) painter.setKintsugi(false);
+  if (!state.rogueOn) {
+    const pick = $('#rogue-target').value;
+    state.rogueId = pick === 'random' ? AGENTS[Math.floor(Math.random() * AGENTS.length)].id : pick;
+    state.rogueOn = true;
+    rt.setRogue(state.rogueId, true);
+  } else {
+    state.rogueOn = false;
+    rt.setRogue(state.rogueId, false);
+    painter.setKintsugi(false);
+  }
+  $('#rogue-target').disabled = state.rogueOn;            // pick the target before corrupting
   updateButtons();
 };
 $('#btn-baseline').onclick = () => {
