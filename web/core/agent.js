@@ -12,6 +12,7 @@
 //     .setBaseline(on)           experimenter switch: conductor-baseline mode (comparison only)
 //   Extensions (see CONTRACTS.md):
 //     .setRandomRotation(on)     rehearsal-only control: use R_random instead of R
+//     .setSharing(on)            belief sharing on (default, EÄ) / off (independent comparison)
 //     .resetFlags()              experimenter pressed Restore: clear sticky rogue flags
 //     .inspect()                 read-only snapshot for tests and the simulator
 
@@ -23,6 +24,7 @@ import {
   prepareAnchors,
   embed,
   moodScores,
+  level,
   levelWithHysteresis,
   contextFromLevels,
 } from './perception.js';
@@ -36,6 +38,11 @@ export const DETECT = {
   alpha: 0.2, // EMA weight per delivered note
   level: 0.3, // EMA above this ...
   bars: 2, // ... for this many consecutive bars => suspect
+  // OR: this many UNEXPLAINED Eb/G# notes within countWindowBars => suspect. Honest agents never
+  // play an unexplained one, so a few is proof enough; this catches a SUBTLE saboteur that keeps
+  // its rate of bad notes too low for the EMA (e.g. one bad note every 2 bars).
+  count: 4,
+  countWindowBars: 8,
   silenceBars: 2, // nothing heard for this long => "silent"
   suspicionTtlBars: 4, // a peer's suspect message counts for this long
   roguePcWindowBars: 3, // absorb uses rogue pitch classes from the last N bars
@@ -53,6 +60,7 @@ export function createAgent({
   seed = 0,
   compose = defaultCompose,
   peers = AGENT_IDS.filter((p) => p !== id),
+  fusion = null, // agents.json .fusion: per-subset rescaling for belief sharing
 }) {
   if (!AGENT_IDS.includes(id)) throw new Error(`createAgent: unknown id ${id}`);
   const prep = prepareParams(params);
@@ -69,9 +77,14 @@ export function createAgent({
   let rogue = false;
   let baseline = false;
   let useRandomRotation = false;
+  let sharing = true; // belief sharing (EÄ); off = fully independent agents (comparison)
 
-  // Perception: contexts keyed by the bar they take effect, in arrival order.
-  const contexts = []; // [{ bar, ctx, valence, arousal, vLevel, aLevel }]
+  // Perception. views: my own standardised scores per scene, keyed by the scene's start bar.
+  // beliefs: the latest scores each peer broadcast for each scene. decided: the context I
+  // actually played each bar (my reading fused with the beliefs I had heard by then).
+  const views = []; // [{ bar, v, a }]
+  const beliefs = {}; // peer -> { sceneBar -> { v, a } }
+  const decided = new Map(); // bar -> { mode, density }
   let lastLevels = { v: null, a: null };
 
   // Agent's own notion of time: the bar currently sounding (= last planned bar - 1).
@@ -97,6 +110,7 @@ export function createAgent({
   const peerSuspicion = {}; // target -> { from -> { suspect, score, bar } }
   const roguePcs = {}; // peer -> [{ bar, pc }] recent unexplained outside notes (feeds absorb)
   const rogueSeen = {}; // peer -> Set(absolute pc) every unexplained outside pc since reset
+  const evidenceBars = {}; // peer -> [bar of each unexplained outside note] (count rule)
   for (const p of peers) {
     ema[p] = 0;
     aboveBars[p] = 0;
@@ -105,6 +119,7 @@ export function createAgent({
     peerSuspicion[p] = {};
     roguePcs[p] = [];
     rogueSeen[p] = new Set();
+    evidenceBars[p] = [];
   }
 
   // An outside pitch class (Eb / G#) from `from` is EXPLAINED, and so is not evidence
@@ -127,24 +142,61 @@ export function createAgent({
     });
   }
 
-  function ownCtxAt(bar) {
+  function viewAt(bar) {
     let best = null;
-    for (const c of contexts) if (c.bar <= bar && (!best || c.bar >= best.bar)) best = c;
-    return best ? best.ctx : DEFAULT_CTX;
+    for (const w of views) if (w.bar <= bar && (!best || w.bar >= best.bar)) best = w;
+    return best;
+  }
+
+  function quantise(v, a) {
+    return contextFromLevels(level(v, th.valence), level(a, th.arousal));
+  }
+
+  /** The context I played (or will play) at `bar`; before planning it, my own reading. */
+  function ownCtxAt(bar) {
+    if (decided.has(bar)) return decided.get(bar);
+    const w = viewAt(bar);
+    return w ? quantise(w.v, w.a) : DEFAULT_CTX;
   }
 
   function onView(bar, vec) {
     const z = embed(prep, vec, useRandomRotation);
     const s = moodScores(prep, anc, z, useRandomRotation);
-    const vLevel = levelWithHysteresis(s.valence, th.valence, th.h, lastLevels.v);
-    const aLevel = levelWithHysteresis(s.arousal, th.arousal, th.h, lastLevels.a);
-    lastLevels = { v: vLevel, a: aLevel };
-    const entry = { bar, ctx: contextFromLevels(vLevel, aLevel), valence: s.valence, arousal: s.arousal };
-    const i = contexts.findIndex((c) => c.bar === bar);
-    if (i >= 0) contexts[i] = entry;
-    else contexts.push(entry);
-    if (contexts.length > 16) contexts.splice(0, contexts.length - 16);
-    return entry.ctx;
+    const entry = { bar, v: s.valence, a: s.arousal };
+    const i = views.findIndex((w) => w.bar === bar);
+    if (i >= 0) views[i] = entry;
+    else views.push(entry);
+    if (views.length > 8) views.splice(0, views.length - 8);
+    return quantise(entry.v, entry.a);
+  }
+
+  // Belief sharing: fuse my standardised scores for this scene with the latest scores each
+  // un-flagged peer broadcast for the SAME scene (clipped, so a wild value can't dominate),
+  // then rescale by the calibration std of that subset's mean (averaging shrinks the spread).
+  const CLIP = 4;
+  const clip = (x) => Math.max(-CLIP, Math.min(CLIP, x));
+  function fuse(w) {
+    const used = [id];
+    let v = w.v;
+    let a = w.a;
+    if (sharing && !baseline) {
+      for (const p of peers) {
+        const b = beliefs[p]?.[w.bar];
+        if (!b || flagged[p] || suspected[p]) continue; // stop trusting a peer as soon as I suspect it
+        used.push(p);
+        v += clip(b.v);
+        a += clip(b.a);
+      }
+    }
+    v /= used.length;
+    a /= used.length;
+    const key = AGENT_IDS.filter((x) => used.includes(x)).join('+');
+    const scale = fusion?.[useRandomRotation ? 'random' : 'fitted']?.[key];
+    if (scale) {
+      v /= scale[0];
+      a /= scale[1];
+    }
+    return { v, a, used: used.filter((x) => x !== id) };
   }
 
   function updatePeerModel(from, note) {
@@ -174,6 +226,7 @@ export function createAgent({
         const evidence = isOutsideUnion(msg.pitch) && !explainedByAbsorb(from, pc);
         ema[from] = (1 - DETECT.alpha) * ema[from] + DETECT.alpha * (evidence ? 1 : 0);
         if (evidence) {
+          evidenceBars[from].push(msg.bar);
           roguePcs[from].push({ bar: msg.bar, pc });
           rogueSeen[from].add(pc);
         }
@@ -184,6 +237,13 @@ export function createAgent({
         if (!peers.includes(msg.target) && msg.target !== id) return;
         if (msg.target === id) return; // accusations against me don't change my own behaviour
         peerSuspicion[msg.target][from] = { suspect: !!msg.suspect, score: msg.score, bar: msg.bar };
+        break;
+      }
+      case 'belief': {
+        if (!Number.isFinite(msg.v) || !Number.isFinite(msg.a) || !Number.isFinite(msg.bar)) return;
+        const byScene = (beliefs[from] ??= {});
+        byScene[msg.bar] = { v: msg.v, a: msg.a };
+        for (const k of Object.keys(byScene)) if (+k < msg.bar - 32) delete byScene[k];
         break;
       }
       case 'lead': {
@@ -199,7 +259,8 @@ export function createAgent({
   function closeBar() {
     for (const p of peers) {
       aboveBars[p] = ema[p] > DETECT.level ? aboveBars[p] + 1 : 0;
-      suspected[p] = aboveBars[p] >= DETECT.bars;
+      evidenceBars[p] = evidenceBars[p].filter((b) => b > lastPlanned - DETECT.countWindowBars);
+      suspected[p] = aboveBars[p] >= DETECT.bars || evidenceBars[p].length >= DETECT.count;
     }
     barsSilent = rxSincePlan > 0 ? 0 : barsSilent + 1;
     rxSincePlan = 0;
@@ -259,9 +320,25 @@ export function createAgent({
     lastPlanned = bar;
     verdicts();
 
-    const own = ownCtxAt(bar);
+    // My mood for this bar: my own reading fused with the beliefs I've heard (hysteresis
+    // carries across bars, so late-arriving beliefs can't make the context flicker).
+    const w = viewAt(bar);
+    let own = DEFAULT_CTX;
+    let fusedCtx = DEFAULT_CTX;
+    let sharedWith = [];
+    if (w) {
+      own = quantise(w.v, w.a);
+      const fz = fuse(w);
+      const vL = levelWithHysteresis(fz.v, th.valence, th.h, lastLevels.v);
+      const aL = levelWithHysteresis(fz.a, th.arousal, th.h, lastLevels.a);
+      lastLevels = { v: vL, a: aL };
+      fusedCtx = contextFromLevels(vL, aL);
+      sharedWith = fz.used;
+    }
     const followLeader = baseline && id !== BASELINE_LEADER && leaderCtx;
-    const ctx = followLeader ? { mode: leaderCtx.mode, density: leaderCtx.density } : own;
+    const ctx = followLeader ? { mode: leaderCtx.mode, density: leaderCtx.density } : fusedCtx;
+    decided.set(bar, ctx);
+    for (const k of decided.keys()) if (k < bar - 16) decided.delete(k);
 
     const flaggedPeers = peers.filter((p) => flagged[p]);
     let absorb = null;
@@ -286,6 +363,25 @@ export function createAgent({
       roguePcs[p] = roguePcs[p].filter((r) => r.bar >= bar - DETECT.roguePcWindowBars);
     }
 
+    // "Try to fix it": when a peer is flagged, exactly one honest agent covers that peer's job.
+    // Every agent applies the same rule on its own (no coordinator): the coverer is the first
+    // agent AFTER the flagged one in the fixed order that I consider honest; if that's me, I
+    // cover. (Under disagreement two agents may both cover for a while; that's harmless.)
+    let cover = null;
+    if (!rogue) {
+      for (const x of flaggedPeers) {
+        const i = AGENT_IDS.indexOf(x);
+        for (let k = 1; k < AGENT_IDS.length; k++) {
+          const c = AGENT_IDS[(i + k) % AGENT_IDS.length];
+          if (c === id || !flagged[c]) {
+            if (c === id) cover = ROLE_OF[x];
+            break;
+          }
+        }
+        if (cover) break;
+      }
+    }
+
     const predictions = predictionsFor(bar, ctx.mode);
     const lastBarNotes = received.get(bar - 1) ?? [];
     for (const k of received.keys()) if (k < bar - 4) received.delete(k);
@@ -302,6 +398,7 @@ export function createAgent({
       absorb,
       defend,
       rogue,
+      cover,
     });
 
     const notes = [];
@@ -333,12 +430,20 @@ export function createAgent({
       const victim = peers[Math.floor(rng() * peers.length)];
       outbox.push({ type: 'suspect', from: id, target: victim, score: 0.9, suspect: true, bar });
     }
+    // Broadcast my beliefs for the current and upcoming scenes every bar (repeats make them
+    // robust to loss). Melkor lies: it broadcasts the opposite of what it perceives.
+    if (sharing && !baseline) {
+      for (const vw of views) {
+        if (vw.bar + 8 <= bar) continue;
+        outbox.push({ type: 'belief', from: id, bar: vw.bar, v: rogue ? -vw.v : vw.v, a: rogue ? -vw.a : vw.a });
+      }
+    }
     if (baseline && id === BASELINE_LEADER) {
-      outbox.push({ type: 'lead', from: id, bar, mode: own.mode, density: own.density });
+      outbox.push({ type: 'lead', from: id, bar, mode: fusedCtx.mode, density: fusedCtx.density });
     }
 
     const telemetry = [
-      { type: 'ctx', from: id, bar, mode: ctx.mode, density: ctx.density, own: { ...own }, followingLeader: !!followLeader },
+      { type: 'ctx', from: id, bar, mode: ctx.mode, density: ctx.density, own: { ...own }, sharedWith, followingLeader: !!followLeader },
       ...predictions.map((g) => ({ type: 'ghost', from: id, about: g.peer, bar, beat: g.beat, pitch: g.pitch })),
       {
         type: 'status',
@@ -348,6 +453,7 @@ export function createAgent({
         baseline,
         randomRotation: useRandomRotation,
         response,
+        covering: cover,
         suspected: peers.filter((p) => suspected[p]),
         flagged: flaggedPeers,
         barsSilent,
@@ -370,6 +476,10 @@ export function createAgent({
       baseline = !!on;
       if (!baseline) leaderCtx = null;
     },
+    /** Comparison switch: false = fully independent agents (no belief sharing). */
+    setSharing(on) {
+      sharing = !!on;
+    },
     setRandomRotation(on) {
       useRandomRotation = !!on;
     },
@@ -382,6 +492,7 @@ export function createAgent({
         peerSuspicion[p] = {};
         roguePcs[p] = [];
         rogueSeen[p] = new Set();
+        evidenceBars[p] = [];
       }
     },
     inspect() {

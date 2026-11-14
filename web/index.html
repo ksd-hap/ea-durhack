@@ -1,22 +1,256 @@
 <!doctype html>
+<!--
+  =============================================================================
+  index.html: the Stage (Role 4)
+  =============================================================================
+  This file is the page's SKELETON (HTML) and its LOOK (the CSS in <style>).
+  What the buttons DO lives in stage.js; what gets PAINTED lives in paint-p5.js.
+
+  The page, top to bottom (each part has a matching comment below):
+    1. Controls bar ........ #controls   buttons and the loss slider
+    2. Agent badges ........ #badges     four AI badges, with "threads" drawn behind them
+    3. Main area ........... <main>      the painting on the left, the metrics panel on the right
+         3a. Painting ...... #canvas-wrap > #paint (+ #ghost-layer on top)
+         3b. Metrics ....... #metrics    the live proof numbers
+    4. Debug overlay ....... #debug      green text, toggled with the ` key
+
+  Run it:   python -m http.server 8000 --directory web    then open http://localhost:8000
+            (Workers don't load from file://, so double-clicking this file won't work)
+  Options:  ?debug           show the debug overlay
+            ?painter=canvas  use the old plain painter (paint.js) instead of p5
+  Offline:  no CDN anywhere (team rule). System fonts only; libraries live in vendor/.
+  INTEGRATE (Role 3): if audio.js needs Tone.js as a global, add
+            <script src="vendor/tone.js"></script> above stage.js at the bottom.
+  =============================================================================
+-->
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>EÄ — the Stage</title>
-  <!-- [Role 4 OWNS THIS FILE] Placeholder. Tone.js must be vendored: <script src="vendor/tone.js"></script> -->
-  <style>
-    body { margin: 0; background: #0b0b10; color: #ddd; font: 16px system-ui, sans-serif; }
-    main { padding: 24px; }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EÄ · the Stage</title>
+<style>
+  /* ===========================================================================
+     THEME. Every colour of the page chrome (not the painting) lives here.
+     CUSTOMISE: change a value once and it changes everywhere it's used.
+     =========================================================================== */
+  :root {
+    --bg: #101015;       /* page background */
+    --panel: #17171f;    /* controls bar, badges, metrics panel */
+    --line: #2a2a36;     /* thin borders */
+    --text: #e8e4da;     /* normal text */
+    --muted: #8a8698;    /* labels and small text */
+    --gold: #d9b45a;     /* Start button, "Halls" phase, network threads */
+    --teal: #4fb3a6;
+    --violet: #7d6bd6;   /* "Void" phase, active buttons */
+    --crimson: #b3263a;  /* Melkor, Cut button, wrong answers */
+    --ok: #6cc28a;       /* correct answers (ticks) */
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  /* The page is 3 rows: controls (auto height), badges (auto), main (all the space left). */
+  body { display: grid; grid-template-rows: auto auto 1fr; height: 100vh; overflow: hidden; }
+
+  /* ===========================================================================
+     1. CONTROLS BAR (HTML: <div id="controls">; behaviour: stage.js, "CONTROLS")
+     =========================================================================== */
+  #controls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 12px;
+    border-bottom: 1px solid var(--line); background: var(--panel); }
+  #controls .title { font-weight: 600; letter-spacing: .08em; margin-right: 10px; }
+  button { background: #22222c; color: var(--text); border: 1px solid var(--line); border-radius: 6px;
+    padding: 6px 10px; font: inherit; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--muted); }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  button.on { background: #3a3350; border-color: var(--violet); }        /* a toggle that is switched on */
+  #btn-start { background: var(--gold); color: #1a1408; border-color: var(--gold); font-weight: 600; }
+  #btn-cut { border-color: var(--crimson); }
+  #btn-corrupt.on { background: #4a1820; border-color: var(--crimson); }
+  .sep { width: 1px; height: 24px; background: var(--line); margin: 0 4px; } /* thin divider between groups */
+  label.loss { display: flex; gap: 6px; align-items: center; color: var(--muted); }
+  kbd { font-size: 11px; color: var(--muted); margin-left: 3px; }         /* the shortcut letter on a button */
+
+  /* ===========================================================================
+     2. AGENT BADGES + THREADS (HTML: <div id="badges">; behaviour: stage.js renderMetrics / renderThreads)
+     =========================================================================== */
+  #badges { position: relative; display: flex; justify-content: space-around; padding: 10px 12px 14px; }
+  /* The SVG sits behind the badges and holds the curved lines ("threads") between them. */
+  #threads { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+  .thread { fill: none; stroke: var(--gold); stroke-width: 1.5; transition: opacity .4s; }
+  .thread.snapped { stroke: var(--crimson); stroke-dasharray: 4 7; }   /* drawn when loss > 0.8 */
+  .badge { position: relative; z-index: 1; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 6px 12px; min-width: 150px; text-align: center; }
+  .badge .b-name { font-weight: 600; }
+  .badge .b-sub { font-size: 11px; color: var(--muted); }
+  .badge .b-ctx { font-variant-numeric: tabular-nums; }                /* the agent's current mood */
+  .badge[data-rogue="1"] { border-color: var(--crimson); box-shadow: 0 0 12px #b3263a66; }
+  .badge[data-rogue="1"] .b-name::after { content: " · Melkor"; color: var(--crimson); }
+
+  /* ===========================================================================
+     3. MAIN AREA: painting (left) + metrics panel (right)
+     CUSTOMISE: 300px is the metrics panel's width.
+     =========================================================================== */
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 10px; padding: 0 12px 12px; min-height: 0; }
+
+  /* 3a. PAINTING. Three canvases are stacked in the SAME grid cell, so they line up exactly
+     (bottom to top, in the order paint-p5.js inserts them):
+         #paint         = the painting (p5 swaps in its own canvas but keeps this id)
+         #melkor-layer  = see-through: Melkor's cracks and the gold seams (redrawn every frame)
+         #ghost-layer   = see-through: ghosts only, so the Ghosts button can hide them
+     All are 1920x1080 inside; CSS scales them down to fit while keeping 16:9.
+     CUSTOMISE: #paint's background should match PAPER in paint-p5.js. */
+  #canvas-wrap { display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); place-items: center; min-height: 0; }
+  #canvas-wrap > canvas { grid-area: 1 / 1; max-width: 100%; max-height: 100%; aspect-ratio: 16 / 9; border-radius: 6px; }
+  #paint { box-shadow: 0 6px 30px #0008; background: #0a0a10; }
+  #melkor-layer, #ghost-layer { pointer-events: none; background: transparent; }
+  /* NOTE: the default scene painter (paint-scene.js) draws everything on #paint alone;
+     the two overlay layers above are only used by the p5 painter (?painter=p5). */
+
+  /* 3b. METRICS PANEL (HTML: <aside id="metrics">; numbers: stage.js computeMetrics) */
+  #metrics { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px;
+    overflow-y: auto; }
+  #metrics h3 { margin: 12px 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
+  #metrics h3:first-child { margin-top: 0; }
+  .kv { display: flex; justify-content: space-between; padding: 2px 0; font-variant-numeric: tabular-nums; }
+  .kv b { font-weight: 600; }
+  #m-phase { font-size: 20px; font-weight: 700; }
+  #m-phase[data-phase="Halls"] { color: var(--gold); }     /* connected */
+  #m-phase[data-phase="Void"] { color: var(--violet); }    /* cut off */
+  #m-rx { font-size: 20px; font-weight: 700; }
+  body[data-phase="void"] #m-rx { color: var(--violet); }
+  #m-thumb { width: 100%; max-height: 120px; object-fit: cover; border-radius: 6px; margin-top: 4px; opacity: .85; } /* small: it's the input, not the show */
+  #m-caption { font-size: 12px; color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  td { padding: 3px 2px; border-bottom: 1px solid var(--line); font-size: 13px; }
+  .tick[data-ok="1"] { color: var(--ok); } .tick[data-ok="0"] { color: var(--crimson); }
+  .mk[data-state="suspected"] { color: var(--gold); } .mk[data-state="flagged"] { color: var(--crimson); font-weight: 600; }
+  .mk[data-state="none"] { color: var(--muted); }
+  .hint { font-size: 11.5px; color: var(--muted); margin: 0 0 8px; line-height: 1.35; } /* the "what this means" lines */
+  .quiet { color: var(--muted); }
+  tr.th td { font-size: 11px; color: var(--muted); border-bottom: 1px solid var(--line); }
+  .mk[data-state="rogue"] { color: var(--crimson); font-weight: 600; }
+  .badge { cursor: pointer; }                                  /* badges are clickable: "view as" */
+  .badge.viewing { border-color: var(--gold); box-shadow: 0 0 14px #d9b45a55; }
+  .solo { display: flex; flex-wrap: wrap; gap: 4px; }
+  .solo button { padding: 3px 7px; font-size: 12px; }
+
+  /* ===========================================================================
+     4. DEBUG OVERLAY (press ` to toggle; content: stage.js renderDebug)
+     =========================================================================== */
+  #debug { position: fixed; left: 12px; bottom: 12px; max-width: 70vw; white-space: pre-wrap;
+    background: #000c; color: #9f9; font: 11px/1.4 ui-monospace, Consolas, monospace; padding: 8px 10px;
+    border-radius: 6px; pointer-events: none; z-index: 10; }
+</style>
 </head>
-<body>
+<body data-phase="idle">
+
+  <!-- =========================================================================
+       1. CONTROLS BAR
+       Each button's id is wired up in stage.js (search for the id, e.g. "btn-cut").
+       The small letter is its keyboard shortcut.
+       ========================================================================= -->
+  <div id="controls">
+    <span class="title">EÄ</span>
+    <!-- Start: unlocks audio (browsers need a click) and starts the agents. Shows "Loading…" while agents boot. -->
+    <button id="btn-start" disabled>Loading…</button>
+    <span class="sep"></span>
+    <!-- Network faults -->
+    <button id="btn-rehearse" title="Close the hub for good: no more start or random-rotation messages">End rehearsal</button>
+    <button id="btn-cut">Cut<kbd>C</kbd></button>
+    <button id="btn-restore">Restore<kbd>R</kbd></button>
+    <label class="loss">loss <input id="loss" type="range" min="0" max="1" step="0.05" value="0"> <span id="loss-val">0.00</span></label>
+    <span class="sep"></span>
+    <!-- Agent faults and comparisons -->
+    <button id="btn-corrupt">Corrupt Pulse<kbd>M</kbd></button>
+    <button id="btn-baseline">Baseline<kbd>B</kbd></button>
+    <button id="btn-rr" title="Only while the hub is open (rehearsal)">Random rotation</button>
+    <span class="sep"></span>
+    <!-- Painting -->
+    <button id="btn-ghosts" class="on" title="Show or hide the ghost predictions">Ghosts on<kbd>G</kbd></button>
+    <button id="btn-void" title="Wipe the painting back to the empty void; the music keeps going and rebuilds the world">Restart from void<kbd>V</kbd></button>
+    <button id="btn-export">Export painting<kbd>E</kbd></button>
+  </div>
+
+  <!-- =========================================================================
+       2. AGENT BADGES. The "—" under each name is replaced with its mood (e.g. "Aeo · 2").
+       The <svg id="threads"> behind them gets the curved network lines from stage.js.
+       CUSTOMISE: the sub-labels (role · encoder) are plain text here.
+       ========================================================================= -->
+  <div id="badges">
+    <svg id="threads"></svg>
+    <div class="badge" id="badge-eyeA"><div class="b-name">Eye-A</div><div class="b-sub">Architect · DINOv2</div><div class="b-ctx">—</div></div>
+    <div class="badge" id="badge-poetA"><div class="b-name">Poet-A</div><div class="b-sub">Melodist · mpnet</div><div class="b-ctx">—</div></div>
+    <div class="badge" id="badge-eyeB"><div class="b-name">Eye-B</div><div class="b-sub">Weaver · ResNet</div><div class="b-ctx">—</div></div>
+    <div class="badge" id="badge-poetB"><div class="b-name">Poet-B</div><div class="b-sub">Pulse · MiniLM</div><div class="b-ctx">—</div></div>
+  </div>
+
   <main>
-    <h1>EÄ — the Stage</h1>
-    <p>Placeholder. Role 4 builds the Stage here (stage.js + paint.js), Role 3 the sound (audio.js).</p>
-    <p>Role 2 dev pages: <a href="dev/harness.html">runtime harness</a>.</p>
-    <button id="start">Start</button>
+    <!-- =======================================================================
+         3a. PAINTING. This canvas is a placeholder: the p5 painter replaces it with
+         its own canvas (same id) and adds #ghost-layer on top. What gets painted:
+         paint-p5.js (brushes) and composition.js (where the landscape sits).
+         ======================================================================= -->
+    <div id="canvas-wrap"><canvas id="paint"></canvas></div>
+
+    <!-- =======================================================================
+         3b. METRICS PANEL. Every value comes from telemetry only (stage.js computeMetrics).
+         Each id (m-phase, m-rx, ...) is filled in by stage.js renderMetrics.
+         ======================================================================= -->
+    <aside id="metrics">
+      <!-- Written for someone seeing this for the first time: every number has a one-line
+           "what this means" hint under it (.hint). CUSTOMISE the wording freely. -->
+
+      <!-- Are they connected? Messages = proof they're cut off (it should drop to 0 on Cut). -->
+      <h3>Can the agents hear each other?</h3>
+      <div class="kv"><span id="m-phase">—</span><span class="quiet">bar <b id="m-bar">—</b></span></div>
+      <div class="kv"><span>Messages heard (last 10 s)</span><b id="m-rx">0</b></div>
+      <div class="hint">0 means they are completely cut off from each other.</div>
+
+      <!-- The right answer for the current scene, so judges can check the agents -->
+      <!-- The INPUT, not a picture of the painting: the agents hear this scene and sing a world from it. -->
+      <h3>What they are listening to</h3>
+      <div class="hint">This is the input, not the painting. Each agent senses only one part of it (the photo, a crop, or a caption), guesses its mood, and plays. The painting is the world their music builds.</div>
+      <img id="m-thumb" alt="" hidden>
+      <div id="m-caption"></div>
+      <div class="kv"><span>Its real mood</span><b id="m-truth">—</b></div>
+
+      <!-- One row per agent: its own guess, ✓/✗ against the real mood, what it thinks of Melkor -->
+      <h3>What each agent thinks</h3>
+      <table>
+        <tr class="th"><td></td><td>its guess</td><td>right?</td><td>caught as Melkor?</td></tr>
+        <tr id="row-eyeA"><td>Eye-A</td><td class="ctx">—</td><td class="tick"></td><td class="mk">no</td></tr>
+        <tr id="row-poetA"><td>Poet-A</td><td class="ctx">—</td><td class="tick"></td><td class="mk">no</td></tr>
+        <tr id="row-eyeB"><td>Eye-B</td><td class="ctx">—</td><td class="tick"></td><td class="mk">no</td></tr>
+        <tr id="row-poetB"><td>Poet-B</td><td class="ctx">—</td><td class="tick"></td><td class="mk">no</td></tr>
+      </table>
+
+      <!-- Rolling averages. CUSTOMISE the window length: ROLLING_BARS in stage.js -->
+      <h3>How well it's going (last ~25 s)</h3>
+      <div class="kv"><span>Got the mood right</span><b id="m-acc">—</b></div>
+      <div class="hint">How often agents matched the real mood: the key number. Connected, they pool their readings and do better together; cut off, each relies on itself and stays well above a single "conductor" (try Baseline).</div>
+      <div class="kv"><span>Agree with each other</span><b id="m-agree">—</b></div>
+      <div class="hint">How often two honest agents picked the same mood. Connected they share one reading, so this is high; after Cut they drift apart, each still near the truth.</div>
+      <div class="kv"><span>Guessed each other's next note</span><b id="m-ghost">—</b></div>
+      <div class="hint">What they learned about each other: the dashed lines on the painting.</div>
+      <div class="kv"><span>Notes in harmony</span><b id="m-cons">—</b></div>
+      <div class="hint">Share of notes that fit the shared key. Melkor's wrong notes pull this down.</div>
+
+      <!-- View as: see the painting through one agent's eyes (or click its badge, or keys 1-4, 0 = all) -->
+      <h3>See through an agent's eyes</h3>
+      <div class="solo">
+        <button data-view="" class="on">Everyone</button>
+        <button data-view="eyeA">Eye-A</button>
+        <button data-view="poetA">Poet-A</button>
+        <button data-view="eyeB">Eye-B</button>
+        <button data-view="poetB">Poet-B</button>
+      </div>
+      <div class="hint">The painting recolours to that agent's own guess of the mood, and shows its predictions of the melody as a dashed line.</div>
+    </aside>
   </main>
+
+  <!-- 4. DEBUG OVERLAY: filled by stage.js when visible -->
+  <pre id="debug" hidden></pre>
+
+  <!-- stage.js loads everything else: paint-p5.js (or paint.js), runtime.js, audio.js -->
   <script type="module" src="stage.js"></script>
 </body>
 </html>

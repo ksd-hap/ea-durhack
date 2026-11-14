@@ -5,6 +5,34 @@
 // compose({ id, role, bar, ctx, state, rng, predictions,
 //           lastBarNotes, absorb, defend, rogue })
 // returns { notes: [{ beat, pitch, dur, vel }], state }.
+//   compose({
+//     id,            // 'eyeA' | 'poetA' | 'eyeB' | 'poetB'
+//     role,          // 'architect' | 'melodist' | 'weaver' | 'pulse'
+//     bar,           // the bar being planned (integer, bar 0 = t0). Chord slot = floor((bar % 8) / 2)
+//     ctx,           // { mode: 'ionian'|'dorian'|'aeolian', density: 1|2|3 } — this agent's OWN context
+//     state,         // the `state` this function returned last bar ({} on the first call). Treat as
+//                    // read-only and return a new object (motif, previous voicing, previous notes...).
+//     rng,           // seeded () => [0,1) owned by this agent. The ONLY source of randomness.
+//     predictions,   // [{ peer, role, bar, slot, beat, pc, pitch, count }] peer-model guesses for THIS bar
+//                    //   slot = eighth-note slot 0..7, beat = slot / 2, pc = absolute pitch class (C = 0)
+//     lastBarNotes,  // NoteEvents received from peers for bar - 1 (collision avoidance)
+//     absorb,        // null | { pcs: [absolute pitch classes] } e.g. 3 = Eb, 8 = G#: rogue flagged, comms up
+//                    //   Honest notes may use Eb/G# (outside all three modes) ONLY here, and only
+//                    //   the pcs listed: Eb major answers Eb, E7 answers G#. Anything else outside
+//                    //   the modes is indistinguishable from Melkor and gets this agent flagged.
+//     defend,        // boolean: rogue flagged and nothing heard for 2 bars
+//     rogue,         // boolean: THIS agent is Melkor. Corrupt YOUR OWN job: your register,
+//                    //   rhythm and role (a corrupted Architect poisons the drone/pads, a corrupted
+//                    //   Weaver the inner voices...), using Eb/G# for at least half of its notes and
+//                    //   at least 2 notes per bar, so the others can catch it within ~3 bars.
+//     cover,         // null | 'architect'|'melodist'|'weaver'|'pulse': a peer with that job was
+//                    //   flagged and I'm the honest agent chosen to cover it. Add a minimal, in-scale
+//                    //   version of that job (e.g. covering the Architect: a D/A pedal) on top of mine.
+//   }) -> {
+//     notes: [{ beat, pitch, dur, vel }],   // beat 0-based in [0,4) (musical beats 1 and 3 = 0 and 2),
+//                                           // pitch MIDI (D4 = 62), dur in beats > 0, vel in (0,1]
+//     state,                                // the new state, handed back next bar
+//   }
 //
 // Beats are zero-based. Durations are beats. Pitches are MIDI.
 // The wrapper adds from, bar, at, role and rogue.
@@ -589,3 +617,4 @@ export function compose({
     },
   };
 }
+

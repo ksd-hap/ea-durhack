@@ -34,7 +34,7 @@ Perception maths (`web/core/perception.js`, which must match NumPy to 1e-4):
 |---|---|---|---|
 | `ea-sense-<id>` | world → one agent | `{type:'view', bar, vec}`, sent 2 bars before the scene starts and **re-sent every bar** (same bar gives the same context, so it's idempotent) **[PROPOSED]** | never |
 | `ea-hub` | hub → agents and world, rehearsal only | `{type:'start', t0}` (**repeated every 200 ms until acknowledged**; only a new `t0` restarts anything) **[PROPOSED]**, `{type:'useRandomRotation', on}`, `{type:'end'}` **[PROPOSED: end]** | closed at end of rehearsal or on Cut |
-| `ea-net` | agent ↔ agent | `{type:'note', ...NoteEvent}`, `{type:'suspect', from, target, score, suspect, bar}`, `{type:'lead', from, bar, mode, density}` (baseline only) **[PROPOSED: suspect/bar fields, lead]** | yes (loss slider, Cut) |
+| `ea-net` | agent ↔ agent | `{type:'note', ...NoteEvent}`, `{type:'suspect', from, target, score, suspect, bar}`, `{type:'lead', from, bar, mode, density}` (baseline only), `{type:'belief', from, bar, v, a}` (belief sharing: my standardised valence/arousal for the scene starting at `bar`, re-sent every bar) **[PROPOSED]** **[PROPOSED: suspect/bar fields, lead]** | yes (loss slider, Cut) |
 | `ea-netem` | experimenter → transport | `{type:'loss', p}` | never; agent logic never sees it |
 | `ea-telemetry` | agents and world → Stage, one way | see below | never; agents never subscribe |
 
@@ -71,6 +71,32 @@ const s = m.snapshot(Date.now());
 - **Consonance** counts all sounding notes, Melkor's included, against the honest majority's mode. On a tie, no mode is privileged.
 - **Window.** Values are over the last 8 closed bars. A bar closes when telemetry for a later bar arrives.
 - `web/dev/harness.html` shows a working panel. Agent code never imports this file (isolation check).
+
+## Corrupting any agent (Melkor) **[PROPOSED by Role 2]**
+Any agent can be corrupted (`rt.setRogue(id, true)`), not just Pulse. **It corrupts its own job:**
+- **Sound (Role 3, `compose` with `rogue: true`).** Stay in your own register, rhythm and timbre, but poison it: a corrupted Architect plays a tritone drone and E♭ in the pad; a corrupted Weaver bends the inner voices onto E♭/G♯; and so on. **At least half the notes must be E♭/G♯, and at least 2 notes per bar**, so the others catch it within about 3 bars. A subtler saboteur is still caught by the count rule (4 unexplained E♭/G♯ in 8 bars), but more slowly: a 1-bad-note-per-2-bars Architect took 8 bars.
+- **Painting (Role 4).** Notes with `rogue: true` corrupt **that agent's own layer**: the Architect's sky and land, the Weaver's water, the Melodist's line, Pulse's stipple. Never another agent's layer.
+- **"Fixing it" (Role 2 decides, Roles 3 and 4 render).** Once an agent is flagged, **exactly one honest agent covers its job**: the first agent after it in the order eyeA → poetA → eyeB → poetB that the deciding agent considers honest. Every agent applies the rule on its own; there's no coordinator.
+  - The coverer gets `compose({... cover: 'architect'|'melodist'|'weaver'|'pulse' })`. **Role 3** adds a minimal, in-scale version of that job, e.g. covering the Architect with a D/A pedal.
+  - Its `status` telemetry carries `covering: role`, so **Role 4** can show that agent's brush repairing the corrupted layer (kintsugi on that layer).
+  - Absorb (all honest agents) and defend still apply as before.
+- **Measured** (`tests/corruption.test.mjs`): every agent, corrupted in its own job, is caught within 4 bars with 0 false flags; exactly one honest agent covers it. Role 3's honest composer played no E♭/G♯ in 13,689 notes.
+- **Known limit:** at 90% message loss, with honest agents answering Melkor every bar, 1 run in 30 had an honest agent flagged. An agent that has heard nothing from anyone may flag on its own evidence alone.
+
+## Belief sharing (EÄ's method) **[PROPOSED by Roles 1+2]**
+Every bar, each agent broadcasts its own standardised (valence, arousal) for the current and upcoming scenes. When it plans a bar, it fuses its reading with the latest belief from each peer for the **same scene**:
+- the mean over itself and the peers it heard;
+- clipped to ±4;
+- rescaled by `agents.json` → `fusion[fitted|random][subset]`, the calibration std of that subset's mean;
+- then quantised with hysteresis.
+
+Peers it **suspects or has flagged** are left out. Nobody is in charge, and each agent decides for itself.
+
+- **Connected:** agents converge. Held-out accuracy rises from 34.7% to 48.0% (sim, 400 runs). Against truth from captions 3–5, which no agent sees, it rises from 33.1% to 48.0% (+14.9 points, 95% CI [+8.6, +21.1]). Sharing in the random frame stays at chance.
+- **Cut:** from the next scene on, each agent is exactly an independent agent again (34.7%), still about double the conductor (16.9%).
+- **Melkor** also lies in its beliefs, broadcasting the opposite of what it perceives. Until it's suspected (about 2 bars) that costs accuracy, then it's ignored.
+- **Demo:** in the Halls the four agents visibly agree (they share one reading). After the Cut they drift apart, while staying near the truth. Agreement under full sharing is trivially 100% in *any* frame, so the claim rests on **accuracy**, not agreement.
+- **The world now sends views 3 bars ahead (was 2),** so beliefs about a new scene cross the network before it starts. `sim` method `independent` = EÄ without sharing (for the chart).
 
 ## Main thread → agent worker (fault injection only)
 `{cmd:'init', id, seed, session}`, `{cmd:'setRogue', on}`, `{cmd:'setBaseline', on}`, `{cmd:'resetFlags'}` **[PROPOSED: resetFlags, sent by Restore]**. Never musical information. Enforced by `tools/check_isolation.sh`.
