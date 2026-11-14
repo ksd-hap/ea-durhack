@@ -1,6 +1,6 @@
 // transport.js — the lossy agent-to-agent network. [Role 2]
 //
-// Wraps BroadcastChannel 'ea-net'. On RECEIVE, each message is dropped with probability p
+// Wraps the session's 'ea-net' channel. On RECEIVE, each message is dropped with probability p
 // using a seeded generator private to this agent. p comes from 'ea-netem', which only this
 // layer reads; agent logic never sees it. BroadcastChannel never delivers a message back to
 // the sender's own channel object, which is what we want.
@@ -9,16 +9,17 @@
 // count/dropped are for the last interval and total is cumulative delivered.
 
 import { mulberry32, seedFor } from './core/rng.js';
+import { CHANNEL, openChannel } from './channels.js';
 
-export function createTransport({ id, seed = 0, onDeliver, emit, rxIntervalMs = 1000 }) {
+export function createTransport({ id, seed = 0, session, onDeliver, emit, rxIntervalMs = 1000 }) {
   const rng = mulberry32(seedFor(`net:${id}`, seed));
   let p = 0;
   let delivered = 0;
   let dropped = 0;
   let total = 0;
 
-  const net = new BroadcastChannel('ea-net');
-  const netem = new BroadcastChannel('ea-netem');
+  const net = openChannel(CHANNEL.net, session);
+  const netem = openChannel(CHANNEL.netem, session);
 
   netem.onmessage = (e) => {
     const m = e.data;

@@ -28,6 +28,8 @@ Perception maths (`web/core/perception.js`, which must match NumPy to 1e-4):
 - Hysteresis: a level changes only when the score leaves its current band by more than `hysteresis`.
 
 ## Channels (BroadcastChannel)
+**Every name below is per run:** the real channel is `<name>:<session>`, e.g. `ea-net:k3f9x2ab01`. The Stage's runtime picks a random session on each `createRuntime()` and passes it to the world and the agents in `init`. So another Stage tab, or a leftover agent window, is on a different session and can't hear or steer this run. **Channels are created only in `web/channels.js` (`openChannel`); nobody else calls `new BroadcastChannel`.** CI enforces this for all roles. Roles 3 and 4 get everything through the runtime (`rt.onTelemetry`, `rt.cut()`, ...). **[PROPOSED by Role 2]**
+
 | Channel | Direction | Messages | Cut? |
 |---|---|---|---|
 | `ea-sense-<id>` | world → one agent | `{type:'view', bar, vec}`, sent 2 bars before the scene starts and **re-sent every bar** (same bar gives the same context, so it's idempotent) **[PROPOSED]** | never |
@@ -55,7 +57,7 @@ Agents plan bar n+1 while bar n sounds. Audio converts once: `offset = ctx.curre
 | `started` | `from, t0` (from is an agent id or `'world'`) **[PROPOSED]** | each agent and the world, on every `start` they receive |
 
 ## Main thread → agent worker (fault injection only)
-`{cmd:'init', id, seed}`, `{cmd:'setRogue', on}`, `{cmd:'setBaseline', on}`, `{cmd:'resetFlags'}` **[PROPOSED: resetFlags, sent by Restore]**. Never musical information. Enforced by `tools/check_isolation.sh`.
+`{cmd:'init', id, seed, session}`, `{cmd:'setRogue', on}`, `{cmd:'setBaseline', on}`, `{cmd:'resetFlags'}` **[PROPOSED: resetFlags, sent by Restore]**. Never musical information. Enforced by `tools/check_isolation.sh`.
 
 ## Agent core (`web/core/agent.js`)
 ```js
@@ -83,10 +85,10 @@ A worked example lives in `web/core/compose.example.json`, and `tests/compose.co
 
 ## Runtime API for the Stage (`web/runtime.js`, Role 2)
 ```js
-const rt = await createRuntime({ seed });
+const rt = await createRuntime({ seed });   // rt.session: this run's channel suffix
 rt.onTelemetry(fn); const t0 = rt.start(); await rt.started; // resolves when all 4 agents + world acknowledged
 rt.endRehearsal(); rt.setRandomRotation(on);
 rt.setLoss(p); rt.cut(); rt.restore(); rt.setRogue('poetB', on); rt.setBaseline(on);
 ```
 
-**Only one Stage tab per machine.** Channel names are shared by every tab on the same origin, so a second Stage tab's hub would steer the first tab's agents.
+**Several Stage tabs no longer interfere** (each run has its own session), but for the demo still keep one Stage tab open, so there's only one sound output.
