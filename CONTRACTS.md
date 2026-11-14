@@ -56,6 +56,22 @@ Agents plan bar n+1 while bar n sounds. Audio converts once: `offset = ctx.curre
 | `scene` | `index, bar, id, truth, thumb, caption` **[PROPOSED]** | world, when a scene starts |
 | `started` | `from, t0` (from is an agent id or `'world'`) **[PROPOSED]** | each agent and the world, on every `start` they receive |
 
+## Metrics (`web/metrics.js`, one definition for the Stage and the simulator)
+Role 4's metrics panel and `sim/engine.mjs` both compute every number through `createMetrics()`, so the panel cannot disagree with the slides. Don't reimplement any formula in `stage.js`.
+```js
+import { createMetrics } from './metrics.js';
+const m = createMetrics({ rollingBars: 8 });
+rt.onTelemetry((msg) => m.ingest(msg, Date.now()));
+const s = m.snapshot(Date.now());
+// s.phase 'Halls'|'Void', s.rxLast10s, s.bar, s.scene {id, truth, thumb, caption},
+// s.agents[id] {mode, density, correct, rogue, melkor: 'none'|'suspected'|'flagged'},
+// s.rolling {accuracy, mode_accuracy, agreement, mode_agreement, consonance, prediction_match, bars}
+```
+- **Definitions** are in the file header, computed over honest agents per bar.
+- **Consonance** counts all sounding notes, Melkor's included, against the honest majority's mode. On a tie, no mode is privileged.
+- **Window.** Values are over the last 8 closed bars. A bar closes when telemetry for a later bar arrives.
+- `web/dev/harness.html` shows a working panel. Agent code never imports this file (isolation check).
+
 ## Main thread → agent worker (fault injection only)
 `{cmd:'init', id, seed, session}`, `{cmd:'setRogue', on}`, `{cmd:'setBaseline', on}`, `{cmd:'resetFlags'}` **[PROPOSED: resetFlags, sent by Restore]**. Never musical information. Enforced by `tools/check_isolation.sh`.
 

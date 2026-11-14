@@ -11,7 +11,7 @@ code() { grep -vE '^[^:]+:[0-9]+:[[:space:]]*(//|\*|/\*)'; }
 AGENT_FILES="web/agent.worker.js web/transport.js web/core/*.js"
 
 # 1. Agent-side code never mentions ground truth, scene files or the telemetry channel directly.
-for pat in 'truth' 'scenes' 'ea-telemetry' 'ea-sense-world' 'CHANNEL.telemetry'; do
+for pat in 'truth' 'scenes' 'ea-telemetry' 'ea-sense-world' 'CHANNEL.telemetry' 'metrics.js'; do
   hits=$(grep -HnF -- "$pat" $AGENT_FILES 2>/dev/null | code)
   [ -n "$hits" ] && bad "agent code references '$pat':"$'\n'"$hits"
 done
