@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>EÄ agent</title>
+  <style>
+    :root { color-scheme: dark; --accent: #d9b45a; }
+    html, body { margin: 0; height: 100%; background: #0b0b10; color: #e8e4da; font: 16px/1.45 -apple-system, system-ui, sans-serif; }
+    main { box-sizing: border-box; min-height: 100%; max-width: 520px; margin: 0 auto; padding: max(14px, env(safe-area-inset-top)) 16px 24px; display: flex; flex-direction: column; gap: 12px; }
+    h1 { font-size: 20px; margin: 0; } .sub { color: #8a8698; font-size: 13px; }
+    #join { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    #join button { padding: 18px 8px; border-radius: 14px; border: 2px solid #2a2a36; background: #17171f; color: #e8e4da; font: 600 17px/1.2 inherit; }
+    #join button small { display: block; font-weight: 400; font-size: 12px; color: #8a8698; margin-top: 4px; }
+    #join button:disabled { opacity: .35; }
+    #agent { display: none; flex-direction: column; gap: 12px; align-items: center; text-align: center; }
+    #orb { width: 62vw; max-width: 300px; aspect-ratio: 1; border-radius: 50%; background: radial-gradient(circle at 40% 35%, color-mix(in srgb, var(--accent) 70%, white), var(--accent) 45%, #0b0b10 75%); opacity: .35; transition: opacity 90ms, transform 90ms; }
+    #orb.hit { opacity: 1; transform: scale(1.04); }
+    body.melkor #orb { --accent: #b3263a; }
+    #name { font-size: 26px; font-weight: 700; } #mood { font-size: 22px; }
+    #view { width: 100%; max-height: 28vh; object-fit: cover; border-radius: 10px; display: none; }
+    #caption { color: #c3c2b7; font-style: italic; }
+    .row { color: #8a8698; font-size: 13px; }
+    .bad { color: #e66; } .warn { color: #ec6; } .ok { color: #6cc28a; }
+    #nudge { width: 100%; }
+    #tips { color: #8a8698; font-size: 12px; border-top: 1px solid #22222c; padding-top: 8px; }
+  </style>
+  <!-- Tone.js must be loaded BEFORE the tap: iOS only unlocks audio if it starts inside the tap. -->
+  <script src="vendor/tone.js"></script>
+</head>
+<body>
+  <main>
+    <div><h1>EÄ: be one of the four</h1><div class="sub" id="net">connecting to the laptop…</div></div>
+    <div id="join"></div>
+    <div id="agent">
+      <div id="name"></div>
+      <div id="orb"></div>
+      <div id="mood">waiting for Start</div>
+      <img id="view" alt="">
+      <div id="caption"></div>
+      <div class="row" id="state"></div>
+      <div class="row" id="flags"></div>
+      <label class="row">timing nudge <span id="nudgev">0</span> ms<input id="nudge" type="range" min="-200" max="200" step="10" value="0"></label>
+    </div>
+    <div id="tips">Keep this page open and the screen on (Auto-Lock: Never). iPhone: volume up; on iOS 16 or older, silent switch off. Do Not Disturb on.</div>
+  </main>
+  <script type="module" src="phone.js"></script>
+</body>
+</html>

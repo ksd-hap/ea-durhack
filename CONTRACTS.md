@@ -36,6 +36,7 @@ Perception maths (`web/core/perception.js`, which must match NumPy to 1e-4):
 | `ea-hub` | hub → agents and world, rehearsal only | `{type:'start', t0}` (**repeated every 200 ms until acknowledged**; only a new `t0` restarts anything) **[PROPOSED]**, `{type:'useRandomRotation', on}`, `{type:'end'}` **[PROPOSED: end]** | closed at end of rehearsal or on Cut |
 | `ea-net` | agent ↔ agent | `{type:'note', ...NoteEvent}`, `{type:'suspect', from, target, score, suspect, bar}`, `{type:'lead', from, bar, mode, density}` (baseline only), `{type:'belief', from, bar, v, a}` (belief sharing: my standardised valence/arousal for the scene starting at `bar`, re-sent every bar) **[PROPOSED]** **[PROPOSED: suspect/bar fields, lead]** | yes (loss slider, Cut) |
 | `ea-netem` | experimenter → transport | `{type:'loss', p}` | never; agent logic never sees it |
+| `ea-control` | Stage ↔ agent **windows** (windows mode only) | Stage→window: `{type:'ping'}`, `{type:'cmd', target, cmd:'setRogue'\|'setBaseline'\|'resetFlags', on}`. Window→Stage: `{type:'present', id}`, `{type:'gone', id}`. Between windows: `{type:'claim'\|'taken', id, nonce}` (duplicate guard). The window relays only those three commands to its Worker. **[PROPOSED, stretch]** | never |
 | `ea-telemetry` | agents and world → Stage, one way | see below | never; agents never subscribe |
 
 ## NoteEvent
@@ -133,5 +134,24 @@ rt.onTelemetry(fn); const t0 = rt.start(); await rt.started; // resolves when al
 rt.endRehearsal(); rt.setRandomRotation(on);
 rt.setLoss(p); rt.cut(); rt.restore(); rt.setRogue('poetB', on); rt.setBaseline(on);
 ```
+
+## Windows mode (stretch, `role2-windows`)
+`createRuntime({ agentHost: 'windows' })` keeps only the world in the Stage. Each agent runs in `web/agent.html?id=<id>&session=<session>`, which hosts the same `agent.worker.js`.
+- Open the windows with `rt.openAgentWindow(id)` (from a click). It puts this run's session in the URL, so the window joins **this** run. A window from an earlier run is on another session and can't double-play.
+- Open all four **before** Start. A window opened later never gets `t0`. Rejoining after closing a window isn't supported.
+- `rt.presence()`, `rt.onPresence(fn)` and `rt.agentsReady` track which windows are up.
+- Keep all four windows **visible** (tiled). Browsers slow down hidden or fully covered windows.
+
+## Phones mode (stretch, `phones` branch) **[PROPOSED by Role 2]**
+Each agent runs on its own phone and plays **its own voice**. The laptop Stage only paints and shows metrics, and stays silent.
+- **Server:** `node tools/phone-server.mjs` serves `web/` and relays channel messages between devices. It's a dumb broadcast medium: it never inspects payloads (isolation check). It also answers clock pings and remembers the Stage's session.
+- **Clock:** every device schedules on `web/clock.js`, synced to the laptop (NTP-style, minimum round trip).
+- **Channels:** `openChannel()` goes over the relay when `useRelay()` is set, so agent code is unchanged.
+- **Stage:** `http://localhost:8000/?phones` uses `createRuntime({ agentHost: 'phones' })`. Only the world runs on the laptop; the Start button shows `n/4 phones`.
+- **Phones:**
+  - `http://<laptop-ip>:8000/phone.html` finds the run and offers the four roles (taken ones greyed out). One tap unlocks sound (iOS 17+ plays through the silent switch) and starts the agent.
+  - Each phone plays only its own notes, with bass below D3 lifted an octave for phone speakers and a per-phone timing nudge.
+  - Each phone shows its mood, its view (photo for the eyes, caption for Poet-A), and Melkor, caught, covering and cut-off states.
+- **Check:** `phone-check.html` runs a one-tap check of sound, connection, clock and agent engine, plus a shared 72 BPM beat for side-by-side sync.
 
 **Several Stage tabs no longer interfere** (each run has its own session), but for the demo still keep one Stage tab open, so there's only one sound output.
