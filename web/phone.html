@@ -19,8 +19,10 @@
     #orb.hit { opacity: 1; transform: scale(1.04); }
     body.melkor #orb { --accent: #b3263a; }
     #name { font-size: 26px; font-weight: 700; } #mood { font-size: 22px; }
-    #view { width: 100%; max-height: 28vh; object-fit: cover; border-radius: 10px; display: none; }
     #caption { color: #c3c2b7; font-style: italic; }
+    #story { font-family: Georgia, serif; min-height: 3.2em; transition: opacity .5s; }
+    #story-title { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: #d9b45a; }
+    #story-line { font-size: 17px; font-style: italic; color: #ece6d6; margin-top: 2px; }
     .row { color: #8a8698; font-size: 13px; }
     .bad { color: #e66; } .warn { color: #ec6; } .ok { color: #6cc28a; }
     #nudge { width: 100%; }
@@ -35,9 +37,9 @@
     <div id="join"></div>
     <div id="agent">
       <div id="name"></div>
+      <div id="story"><div id="story-title"></div><div id="story-line"></div></div>
       <div id="orb"></div>
       <div id="mood">waiting for Start</div>
-      <img id="view" alt="">
       <div id="caption"></div>
       <div class="row" id="state"></div>
       <div class="row" id="flags"></div>

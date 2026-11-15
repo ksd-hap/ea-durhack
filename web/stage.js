@@ -19,6 +19,7 @@
  */
 import { createPainter, BAR_MS, LAYERS } from './paint.js';
 import { createRuntime } from './runtime.js';
+import { STORY, storyKey, createNarrator } from './story.js'; // [Role 2 story] one line of story per moment
 import { createMetrics } from './metrics.js'; // Role 2's shared metrics: the ONE definition of every panel number
 
 // ---- Config -----------------------------------------------------------------
@@ -301,7 +302,7 @@ $('#btn-start').onclick = async () => {
 };
 
 $('#btn-rehearse').onclick = () => { endRehearsal(); updateButtons(); };
-$('#btn-cut').onclick = () => { rt.cut(); state.hubOpen = false; state.randomRot = false; setLoss(1); };
+$('#btn-cut').onclick = () => { state.wasCut = true; rt.cut(); state.hubOpen = false; state.randomRot = false; setLoss(1); };
 $('#btn-restore').onclick = () => { rt.restore(); setLoss(0); painter.setKintsugi(false); }; // restore also resets agents' sticky flags
 $('#loss').oninput = (e) => setLoss(parseFloat(e.target.value));
 
@@ -418,6 +419,39 @@ updateButtons();
 setInterval(renderMetrics, METRICS_EVERY_MS);
 renderMetrics();
 window.addEventListener('resize', renderThreads);
+
+// ---- [Role 2 story] one line of story for what is happening, on the painting and on every phone ----
+// Display only: built from this page's own buttons and the agents' status telemetry.
+const storyEl = document.createElement('div');
+storyEl.id = 'story';
+storyEl.style.cssText = 'position:fixed;left:50%;bottom:22px;transform:translateX(-50%);max-width:min(760px,calc(100vw - 32px));'
+  + 'padding:10px 18px;border-radius:12px;background:rgba(10,8,18,.62);backdrop-filter:blur(4px);text-align:center;'
+  + 'font-family:Georgia,serif;color:#ece6d6;pointer-events:none;z-index:5;transition:opacity .6s';
+document.body.append(storyEl);
+const narrator = createNarrator();
+let storyShown = null;
+let storySentAt = { key: null, t: 0 };
+function renderStory() {
+  const key = narrator.update(storyKey({ started: state.started, hubOpen: state.hubOpen, loss: state.loss, wasCut: !!state.wasCut,
+    randomRot: state.randomRot, baseline: state.baselineOn, status: state.status }));
+  const s = STORY[key];
+  if (key !== storyShown) {
+    storyShown = key;
+    storyEl.style.opacity = '0';
+    setTimeout(() => {
+      storyEl.innerHTML = `<div style="font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#d9b45a">${s.title}</div>`
+        + `<div style="font-size:18px;font-style:italic;margin-top:2px">${s.line}</div>`;
+      storyEl.style.opacity = '1';
+    }, 300);
+  }
+  // Phones show the same line; re-sent every few seconds so a phone that (re)joins catches up.
+  if (rt && (key !== storySentAt.key || performance.now() - storySentAt.t > 3000)) {
+    rt.narrate({ key, ...s });
+    storySentAt = { key, t: performance.now() };
+  }
+}
+setInterval(renderStory, METRICS_EVERY_MS);
+renderStory();
 
 // DEBUG: everything in one place for the console.
 window.EA = { state, painter, metrics: computeMetrics, ingest, setLoss, get rt() { return rt; }, get audio() { return audio; } };
