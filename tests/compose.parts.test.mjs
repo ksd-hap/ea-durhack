@@ -103,26 +103,20 @@ for (const role of ROLES) {
         assert(out.notes.some((n) => n.pitch === 51));
       }
 
-      if (role === 'melodist') {
-        assert.equal(out.notes.length, ctx.density * 2);
-      }
+      assert(out.notes.every((n) => n.dur === 0.25));
 
-      if (role === 'weaver') {
-        assert.equal(
-          out.notes.length,
-          Math.max(2, ctx.density),
-        );
-      }
+      assert(
+        out.notes.every(
+          (n) => [0.5, 0.75].includes(n.beat % 1),
+        ),
+      );
 
-      if (role === 'pulse') {
-        assert(
-          out.notes.every(
-            (n) => Number.isInteger(
-              n.beat * [1, 2, 4][ctx.density - 1],
-            ),
-          ),
-        );
-      }
+      assert.equal(
+        new Set(
+          out.notes.map((n) => `${n.beat}:${n.pitch}`),
+        ).size,
+        out.notes.length,
+      );
 
       state = out.state;
     }
