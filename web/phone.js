@@ -162,6 +162,13 @@ $('#nudge').oninput = (e) => {
 // ---- 4. my own agent: play its voice, show its state (display + sound only) ----
 tel.onmessage = (e) => {
   const m = e.data ?? {};
+  if (m.type === 'story') { // the Stage's line of story, the same on every phone
+    if ($('#story-line').textContent !== m.line) {
+      $('#story').style.opacity = '0';
+      setTimeout(() => { $('#story-title').textContent = m.title; $('#story-line').textContent = m.line; $('#story').style.opacity = '1'; }, 250);
+    }
+    return;
+  }
   if (m.type === 'scene') {
     if (myId === 'poetA') $('#caption').textContent = `“${m.caption}”`;
     return;
