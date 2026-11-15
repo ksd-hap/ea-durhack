@@ -191,10 +191,7 @@ function renderMetrics() {
 
   const t = M.scene?.truth;
   $('#m-truth').textContent = t ? fmtCtx(t) : '—';
-  $('#m-caption').textContent = M.scene?.caption || '';
-  const img = $('#m-thumb');
-  if (M.scene?.thumb && img.dataset.src !== M.scene.thumb) { img.src = M.scene.thumb; img.dataset.src = M.scene.thumb; img.hidden = false; }
-  if (!M.scene?.thumb) img.hidden = true;
+  $('#m-caption').textContent = M.scene?.caption || '';   // (the scene photo was removed from the panel)
 
   for (const a of AGENTS) {
     const c = M.agents?.[a.id];
@@ -337,6 +334,7 @@ $('#btn-export').onclick = () => painter.exportPNG();
 // Restart from void: wipes only the PAINTING (painter.reset). The agents, music and runtime are not
 // touched, so nothing on Role 1/2/3's side is affected; the next notes start building the world again.
 $('#btn-void').onclick = () => painter.reset?.();
+$('#btn-panel').onclick = () => document.body.classList.toggle('panel-hidden');
 
 // "View as" buttons (and clicking a badge): see the painting through one agent's eyes.
 //   scene painter:   recolours everything by that agent's own mood and shows its guesses (ghosts)
@@ -374,6 +372,7 @@ window.addEventListener('keydown', (e) => {
   const click = (id) => { const b = $(id); if (!b.disabled) b.click(); };
   if (k === 'g') click('#btn-ghosts');
   if (k === 'v') click('#btn-void');
+  if (k === 'p') click('#btn-panel');      // P: show or hide the stats panel
   if (['1', '2', '3', '4'].includes(k)) setView(AGENTS[Number(k) - 1].id); // 1-4: view as Eye-A, Poet-A, Eye-B, Poet-B
   if (k === '0') setView(null);                                           // 0: back to everyone
   if (k === 's') click('#btn-start');

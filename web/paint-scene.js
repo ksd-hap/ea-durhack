@@ -120,6 +120,7 @@ export async function createScenePainter(canvas, { seed = 1 } = {}) {
   const pulses = [];                         // {x, y, agent, born}: "a note landed here"
   const lastActive = {};                     // agentId -> ms of its last note (legend highlight)
   let moonRed = 0;                           // 0..1, how red Melkor has stained the moon
+  let legendRight = 0;                       // x where the legend box ends (drawLegend sets it; the caption avoids it)
   let architectGlow = 0;                     // 0..1, a breath of light on each Architect chord
   const stats = { painted: 0, late: 0, ghosts: 0, ghostHits: 0, frames: 0, fps: 0, perLayer: {} };
   ['architect', 'weaver', 'melodist', 'pulse', 'melkor', 'kintsugi', 'ghosts'].forEach((n) => (stats.perLayer[n] = 0));
@@ -636,7 +637,7 @@ export async function createScenePainter(canvas, { seed = 1 } = {}) {
     }
   }
   function drawLegend(g, t) {
-    if (!SHOW_LEGEND) return;
+    if (!SHOW_LEGEND) { legendRight = 0; return; }
     const rows = ORDER.map((id) => ({ id, ...AGENT_INFO[id] }));
     const melkorOn = t - (lastActive.melkor || -1e9) < 3 * BAR_MS;
     // CUSTOMISE: LEGEND_FONT is the text size in canvas pixels (the canvas is 1920 wide, shown smaller).
@@ -646,6 +647,7 @@ export async function createScenePainter(canvas, { seed = 1 } = {}) {
     for (const id in covers) if (coverActive(id)) lines.push(`${AGENT_INFO[covers[id].by].name} is repairing the ${LAYER_NAME[id]} (gold = mended)`);
     g.font = `${LEGEND_FONT}px system-ui, sans-serif`;
     const wBox = Math.max(...lines.map((s) => g.measureText(s).width)) + 90;
+    legendRight = 28 + wBox;                                           // remembered for drawCaption
     const x = 28, y = 26, hBox = 66 + lines.length * rowH;
     g.fillStyle = 'rgba(8, 8, 16, 0.6)'; roundRect(g, x, y, wBox, hBox, 16); g.fill();
     g.font = `600 ${LEGEND_FONT}px Georgia, serif`; g.fillStyle = 'rgba(255,255,255,0.9)';
@@ -676,8 +678,14 @@ export async function createScenePainter(canvas, { seed = 1 } = {}) {
   }
   function drawCaption(g) {
     if (!caption || perspective) return;
+    // Top of the painting, centred in the gap between the legend (left) and the moon (right), so
+    // it stays clear of Role 2's story box at the bottom. The last fillText argument is a maximum
+    // width: long captions get squeezed to fit instead of running into the legend or the moon.
+    const left = legendRight + 30, right = SUN.x - SUN.r - 60;
     g.font = 'italic 26px Georgia, serif'; g.fillStyle = 'rgba(255,255,255,0.75)';
-    g.fillText(`listening to: “${caption}”`, 40, H - 40);
+    g.textAlign = 'center';
+    g.fillText(`listening to: “${caption}”`, (left + right) / 2, 52, Math.max(200, right - left));
+    g.textAlign = 'left';                    // reset: the canvas remembers it, and the legend draws left-aligned
   }
   function roundRect(g, x, y, w, h, rr) { g.beginPath(); g.moveTo(x + rr, y); g.arcTo(x + w, y, x + w, y + h, rr); g.arcTo(x + w, y + h, x, y + h, rr); g.arcTo(x, y + h, x, y, rr); g.arcTo(x, y, x + w, y, rr); g.closePath(); }
 
