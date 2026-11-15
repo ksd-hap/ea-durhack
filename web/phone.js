@@ -31,6 +31,7 @@ let session = null;
 let ctl = null;
 let tel = null;
 let myId = null;
+let joining = false; // set at the tap itself: a double tap must not start a second agent
 let worker = null;
 let audio = null;
 let nudgeMs = 0;
@@ -80,7 +81,7 @@ function renderJoin() {
       $('#join').append(b);
     }
     const isTaken = taken[id] && now - taken[id] < 3500;
-    b.disabled = !!myId || isTaken;
+    b.disabled = !!myId || joining || isTaken;
     const label = wanted ? `Tap to join as ${NAMES[id]}` : NAMES[id];
     const html = `${label}<small>${ROLE_OF[id]} · sees ${SEES[id]}${isTaken ? '<br>already on another phone' : ''}</small>`;
     if (wanted) { b.style.padding = '34px 12px'; b.style.fontSize = '22px'; }
@@ -105,7 +106,11 @@ setInterval(() => !myId && renderJoin(), 1000);
 
 // ---- 2. join: sound first (inside the tap), then claim the role and start the agent ----
 async function join(id) {
-  if (myId) return;
+  // myId is only set after the sound unlock and the claim round (~750 ms); without this flag a
+  // second tap in that window started a second agent on the same phone (double notes, double beliefs).
+  if (myId || joining) return;
+  joining = true;
+  for (const b of Object.values(joinButtons)) b.disabled = true;
   try {
     // Nothing may be awaited before Tone.start(): iOS only unlocks sound synchronously inside the tap.
     if ('audioSession' in navigator) navigator.audioSession.type = 'playback'; // iOS 17+: play through the silent switch
@@ -114,6 +119,8 @@ async function join(id) {
   } catch (err) {
     $('#net').innerHTML = `<span class="bad">sound blocked (${err.message}). Tap again.</span>`;
     audio = null;
+    joining = false;
+    renderJoin();
     return;
   }
   const nonce = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -125,7 +132,7 @@ async function join(id) {
     await new Promise((r) => setTimeout(r, 250));
   }
   ctl.removeEventListener('message', onTaken);
-  if (refused) { taken[id] = Date.now(); renderJoin(); $('#net').innerHTML = `<span class="bad">${NAMES[id]} is already on another phone</span>`; return; }
+  if (refused) { joining = false; taken[id] = Date.now(); renderJoin(); $('#net').innerHTML = `<span class="bad">${NAMES[id]} is already on another phone</span>`; return; }
 
   myId = id;
   document.documentElement.style.setProperty('--accent', COLOURS[id]);
@@ -156,7 +163,6 @@ $('#nudge').oninput = (e) => {
 tel.onmessage = (e) => {
   const m = e.data ?? {};
   if (m.type === 'scene') {
-    if (myId?.startsWith('eye') && m.thumb) { $('#view').src = m.thumb; $('#view').style.display = 'block'; }
     if (myId === 'poetA') $('#caption').textContent = `“${m.caption}”`;
     return;
   }

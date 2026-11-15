@@ -31,6 +31,7 @@ import { now } from './clock.js';
 const AGENT_CMDS = new Set(['setRogue', 'setBaseline', 'resetFlags']);
 const PRESENCE_TTL_MS = 3000;
 const PING_MS = 1000;
+const REJOIN_MS = 1000; // how often the open hub repeats t0 for agents that (re)joined late
 
 function workerHost(seed, session) {
   const workers = {};
@@ -153,6 +154,7 @@ export async function createRuntime({ seed = 0, leadMs = START_LEAD_MS, agentHos
   await Promise.all(agentHost === 'workers' ? [host.ready, world.ready] : [world.ready]);
 
   let t0 = null;
+  let rejoinTimer = null;
   let loss = 0;
   const setLoss = (p) => {
     loss = Math.min(1, Math.max(0, Number(p) || 0));
@@ -226,6 +228,15 @@ export async function createRuntime({ seed = 0, leadMs = START_LEAD_MS, agentHos
         timer = setInterval(send, 200);
       });
       rt.started.catch(() => {}); // callers may ignore it; never an unhandled rejection
+      // Late rejoin: a phone that reloads mid-run starts a fresh agent that never heard t0. While
+      // the hub is open (rehearsal, before the cut) keep repeating the same start once a second;
+      // agents ignore a repeat of the t0 they already have, and a new one plans from the current
+      // bar. After End rehearsal / Cut the hub is closed, so nothing can rejoin (by design).
+      clearInterval(rejoinTimer);
+      rejoinTimer = setInterval(() => {
+        if (!hub || t0 !== myT0) return clearInterval(rejoinTimer);
+        if (now() >= myT0) hub.postMessage({ type: 'start', t0: myT0 });
+      }, REJOIN_MS);
       return myT0;
     },
     started: null,
@@ -236,6 +247,7 @@ export async function createRuntime({ seed = 0, leadMs = START_LEAD_MS, agentHos
     },
     endRehearsal() {
       if (!hub) return;
+      clearInterval(rejoinTimer);
       hub.postMessage({ type: 'end' });
       hub.close();
       hub = null;
@@ -264,6 +276,7 @@ export async function createRuntime({ seed = 0, leadMs = START_LEAD_MS, agentHos
       for (const id of AGENT_IDS) toAgent(id, { cmd: 'setBaseline', on: !!on });
     },
     terminate() {
+      clearInterval(rejoinTimer);
       host.close();
       world.worker.terminate();
       telemetry.close();
