@@ -1,69 +1,44 @@
 // compose.js — pure music logic. [Role 3]
-//
-// Implemented: all four normal musical roles.
-// Melodist and Weaver defence included.
-// Remaining: absorption and Architect defence.
+// Four voices, corruption, covering, absorption and defence.
 //
 // Contract:
 // compose({ id, role, bar, ctx, state, rng, predictions,
-//           lastBarNotes, absorb, defend, rogue })
+//           lastBarNotes, absorb, defend, rogue, cover })
 // returns { notes: [{ beat, pitch, dur, vel }], state }.
-//   compose({
-//     id,            // 'eyeA' | 'poetA' | 'eyeB' | 'poetB'
-//     role,          // 'architect' | 'melodist' | 'weaver' | 'pulse'
-//     bar,           // the bar being planned (integer, bar 0 = t0). Chord slot = floor((bar % 8) / 2)
-//     ctx,           // { mode: 'ionian'|'dorian'|'aeolian', density: 1|2|3 } — this agent's OWN context
-//     state,         // the `state` this function returned last bar ({} on the first call). Treat as
-//                    // read-only and return a new object (motif, previous voicing, previous notes...).
-//     rng,           // seeded () => [0,1) owned by this agent. The ONLY source of randomness.
-//     predictions,   // [{ peer, role, bar, slot, beat, pc, pitch, count }] peer-model guesses for THIS bar
-//                    //   slot = eighth-note slot 0..7, beat = slot / 2, pc = absolute pitch class (C = 0)
-//     lastBarNotes,  // NoteEvents received from peers for bar - 1 (collision avoidance)
-//     absorb,        // null | { pcs: [absolute pitch classes] } e.g. 3 = Eb, 8 = G#: rogue flagged, comms up
-//                    //   Honest notes may use Eb/G# (outside all three modes) ONLY here, and only
-//                    //   the pcs listed: Eb major answers Eb, E7 answers G#. Anything else outside
-//                    //   the modes is indistinguishable from Melkor and gets this agent flagged.
-//     defend,        // boolean: rogue flagged and nothing heard for 2 bars
-//     rogue,         // boolean: THIS agent is Melkor. Corrupt YOUR OWN job: your register,
-//                    //   rhythm and role (a corrupted Architect poisons the drone/pads, a corrupted
-//                    //   Weaver the inner voices...), using Eb/G# for at least half of its notes and
-//                    //   at least 2 notes per bar, so the others can catch it within ~3 bars.
-//     cover,         // null | 'architect'|'melodist'|'weaver'|'pulse': a peer with that job was
-//                    //   flagged and I'm the honest agent chosen to cover it. Add a minimal, in-scale
-//                    //   version of that job (e.g. covering the Architect: a D/A pedal) on top of mine.
-//   }) -> {
-//     notes: [{ beat, pitch, dur, vel }],   // beat 0-based in [0,4) (musical beats 1 and 3 = 0 and 2),
-//                                           // pitch MIDI (D4 = 62), dur in beats > 0, vel in (0,1]
-//     state,                                // the new state, handed back next bar
-//   }
 //
-// Beats start at 0. Durations are in beats. Pitches are MIDI.
-// The wrapper adds from, bar, at, role and rogue.
-// Never mutate incoming state.
-// Use only the supplied seeded rng.
+// Beats start at 0. Durations are beats. Pitches are MIDI.
+// Never mutate input state. Use only the supplied rng.
 // No audio, timers, networking or browser dependencies.
+// Honest Eb/G# notes require current absorb.pcs permission.
 
-import { SCALES, relPc } from './theory.js';
+import {
+  SCALES,
+  relPc,
+  absPc,
+  isOutsideUnion,
+} from './theory.js';
 
-// Absolute pitch classes: C = 0, D = 2.
+import { planResponse } from './response.js';
+import { corruptPart, coverPart } from './parts.js';
+
 const PROGRESSIONS = {
   ionian: [
-    [2, 6, 9],   // D major
-    [11, 2, 6],  // B minor
-    [7, 11, 2],  // G major
-    [9, 1, 4],   // A major
+    [2, 6, 9],
+    [11, 2, 6],
+    [7, 11, 2],
+    [9, 1, 4],
   ],
   dorian: [
-    [2, 5, 9],   // D minor
-    [7, 11, 2],  // G major
-    [0, 4, 7],   // C major
-    [2, 5, 9],   // D minor
+    [2, 5, 9],
+    [7, 11, 2],
+    [0, 4, 7],
+    [2, 5, 9],
   ],
   aeolian: [
-    [2, 5, 9],   // D minor
-    [10, 2, 5],  // B-flat major
-    [5, 9, 0],   // F major
-    [0, 4, 7],   // C major
+    [2, 5, 9],
+    [10, 2, 5],
+    [5, 9, 0],
+    [0, 4, 7],
   ],
 };
 
@@ -73,7 +48,6 @@ const MELODY_BEATS = {
   3: [0, 0.5, 1, 2, 2.5, 3],
 };
 
-// Four-note motifs expressed in scale steps.
 const MOTIFS = [
   [0, 1, 2, 1],
   [0, -1, -2, -1],
@@ -104,18 +78,24 @@ function choosePadVoicing(chord, previous = [50, 54, 57]) {
   const pool = [];
 
   for (let pitch = 50; pitch <= 62; pitch++) {
-    if (chord.includes(pitch % 12)) pool.push(pitch);
+    if (chord.includes(absPc(pitch))) {
+      pool.push(pitch);
+    }
   }
 
-  let best = pool.slice(0, 3);
+  const count = chord.length;
+  let best = pool.slice(0, count);
   let bestScore = Infinity;
 
-  for (let i = 0; i <= pool.length - 3; i++) {
-    const candidate = pool.slice(i, i + 3);
+  for (let i = 0; i <= pool.length - count; i++) {
+    const candidate = pool.slice(i, i + count);
 
     const score = candidate.reduce(
       (sum, pitch, index) =>
-        sum + Math.abs(pitch - previous[index]),
+        sum + Math.abs(
+          pitch -
+          (previous[index] ?? previous.at(-1) ?? 57),
+        ),
       0,
     );
 
@@ -128,7 +108,9 @@ function choosePadVoicing(chord, previous = [50, 54, 57]) {
   return best;
 }
 
-function composeMelodist({ bar, ctx, state, rng, defend }) {
+function composeMelodist({
+  bar, ctx, state, rng, defend, harmony,
+}) {
   const previousPitch =
     state.lastPitch ?? state.prevNotes?.at(-1) ?? 67;
 
@@ -155,14 +137,18 @@ function composeMelodist({ bar, ctx, state, rng, defend }) {
   const pool = [];
 
   for (let pitch = 62; pitch <= 74; pitch++) {
-    if (SCALES[ctx.mode].includes(relPc(pitch))) {
-      pool.push(pitch);
-    }
+    const allowed = harmony.chord
+      ? harmony.chord.includes(absPc(pitch))
+      : SCALES[ctx.mode].includes(relPc(pitch));
+
+    if (allowed) pool.push(pitch);
   }
 
-  const chord = chordForBar(ctx.mode, bar);
+  const chord =
+    harmony.chord ?? chordForBar(ctx.mode, bar);
+
   const chordPool = pool.filter(
-    (pitch) => chord.includes(pitch % 12),
+    (pitch) => chord.includes(absPc(pitch)),
   );
 
   const sceneBar = bar % 8;
@@ -173,7 +159,6 @@ function composeMelodist({ bar, ctx, state, rng, defend }) {
       ? [...state.motif]
       : [...pick(rng, MOTIFS)];
 
-  // Appear in scene bar 1, return in bars 3 and 5.
   const repeatMotif =
     sceneBar === 0 || sceneBar === 2 || sceneBar === 4;
 
@@ -277,18 +262,22 @@ function composeWeaver({
   predictions = [],
   lastBarNotes = [],
   defend,
+  harmony,
 }) {
-  const chord = chordForBar(ctx.mode, bar);
+  const chord =
+    harmony.chord ?? chordForBar(ctx.mode, bar);
+
   const allowed = defend ? [2, 9] : chord;
   const pool = [];
 
   for (let pitch = 57; pitch <= 69; pitch++) {
-    if (allowed.includes(pitch % 12)) {
+    if (allowed.includes(absPc(pitch))) {
       pool.push(pitch);
     }
   }
 
   const density = defend ? 1 : ctx.density;
+
   const beats = {
     1: [0],
     2: [0, 2],
@@ -325,11 +314,11 @@ function composeWeaver({
     const blocked = new Set(
       predicted.length
         ? predicted.map((note) => note.pc)
-        : recent.map((note) => note.pitch % 12),
+        : recent.map((note) => absPc(note.pitch)),
     );
 
     const clear = pool.filter(
-      (pitch) => !blocked.has(pitch % 12),
+      (pitch) => !blocked.has(absPc(pitch)),
     );
 
     const available = clear.length ? clear : pool;
@@ -337,7 +326,7 @@ function composeWeaver({
     const preferred = defend
       ? []
       : available.filter(
-          (pitch) => preferredPcs.includes(pitch % 12),
+          (pitch) => preferredPcs.includes(absPc(pitch)),
         );
 
     const pitch = nearestPitch(
@@ -368,121 +357,71 @@ function composeWeaver({
   };
 }
 
-export function compose({
-  role,
-  bar,
-  ctx,
-  state = {},
-  rng,
-  rogue,
-  defend,
-  predictions = [],
-  lastBarNotes = [],
+function composeArchitect({
+  bar, ctx, state, defend, harmony,
 }) {
   const notes = [];
+  let padVoicing = state.padVoicing;
 
-  if (rogue) {
-    const beats = [0, 1, 2, 3];
+  if (bar % 2 === 0) {
+    const chord =
+      harmony.chord ?? chordForBar(ctx.mode, bar);
 
-    for (let i = beats.length - 1; i > 0; i--) {
-      const j = Math.floor(rng() * (i + 1));
-      [beats[i], beats[j]] = [beats[j], beats[i]];
-    }
+    padVoicing = choosePadVoicing(
+      chord,
+      state.padVoicing,
+    );
 
-    const chosenBeats = beats
-      .slice(0, 2)
-      .sort((a, b) => a - b);
+    const padPitches = [...padVoicing];
 
-    for (const beat of chosenBeats) {
-      notes.push({
-        beat,
-        pitch: rng() < 0.5 ? 75 : 68,
-        dur: 0.5,
-        vel: 0.9,
-      });
-    }
-  } else if (role === 'architect') {
-    let padVoicing = state.padVoicing;
+    if (ctx.density === 3 && !harmony.chord) {
+      const ninthPc = (chord[0] + 2) % 12;
 
-    if (bar % 2 === 0) {
-      const chord = chordForBar(ctx.mode, bar);
-      padVoicing = choosePadVoicing(chord, state.padVoicing);
-      const padPitches = [...padVoicing];
-
-      if (ctx.density === 3) {
-        const ninthPc = (chord[0] + 2) % 12;
-
-        for (let pitch = 50; pitch <= 62; pitch++) {
-          if (pitch % 12 === ninthPc) {
-            padPitches.push(pitch);
-            break;
-          }
+      for (let pitch = 50; pitch <= 62; pitch++) {
+        if (absPc(pitch) === ninthPc) {
+          padPitches.push(pitch);
+          break;
         }
       }
+    }
 
+    notes.push({
+      beat: 0, pitch: 38, dur: 8, vel: 0.35,
+    });
+
+    if (defend) {
+      notes.push({
+        beat: 0, pitch: 45, dur: 8, vel: 0.45,
+      });
+      notes.push({
+        beat: 0, pitch: 50, dur: 8, vel: 0.45,
+      });
+    }
+
+    for (const pitch of padPitches) {
       notes.push({
         beat: 0,
-        pitch: 38,
+        pitch,
         dur: 8,
-        vel: 0.35,
+        vel: Math.min(
+          1,
+          0.45 + (defend ? 0.15 : 0),
+        ),
       });
-
-      for (const pitch of padPitches) {
-        notes.push({
-          beat: 0,
-          pitch,
-          dur: 8,
-          vel: 0.45,
-        });
-      }
     }
-
-    return {
-      notes,
-      state: { ...state, lastBar: bar, padVoicing },
-    };
-  } else if (role === 'melodist') {
-    return composeMelodist({
-      bar, ctx, state, rng, defend,
-    });
-  } else if (role === 'weaver') {
-    return composeWeaver({
-      bar, ctx, state, predictions, lastBarNotes, defend,
-    });
-  } else {
-    // Pulse: five-note subset of the current mode.
-    const pentatonic = ctx.mode === 'ionian'
-      ? [2, 4, 6, 9, 11] // D E F# A B
-      : [2, 5, 7, 9, 0]; // D F G A C
-
-    const pool = [];
-
-    for (let pitch = 74; pitch <= 86; pitch++) {
-      if (pentatonic.includes(pitch % 12)) {
-        pool.push(pitch);
-      }
-    }
-
-    const step = {
-      1: 1,
-      2: 0.5,
-      3: 0.25,
-    }[ctx.density];
-
-    const chance = ctx.density === 1 ? 0.3 : 0.6;
-
-    for (let beat = 0; beat < 4; beat += step) {
-      if (rng() >= chance) continue;
-
+  } else if (defend && !state.defending) {
+    if (!state.padVoicing) {
       notes.push({
-        beat,
-        pitch: pick(rng, pool),
-        dur: Math.min(0.3, step * 0.7),
-        vel:
-          (ctx.density === 3 ? 0.28 : 0.34) +
-          rng() * 0.06,
+        beat: 0, pitch: 38, dur: 4, vel: 0.35,
       });
     }
+
+    notes.push({
+      beat: 0, pitch: 45, dur: 4, vel: 0.45,
+    });
+    notes.push({
+      beat: 0, pitch: 50, dur: 4, vel: 0.45,
+    });
   }
 
   return {
@@ -490,6 +429,160 @@ export function compose({
     state: {
       ...state,
       lastBar: bar,
+      padVoicing,
+      defending: Boolean(defend),
+    },
+  };
+}
+
+function composePulse({
+  bar, ctx, state, rng, harmony,
+}) {
+  const pentatonic =
+    harmony.chord ??
+    (ctx.mode === 'ionian'
+      ? [2, 4, 6, 9, 11]
+      : [2, 5, 7, 9, 0]);
+
+  const pool = [];
+
+  for (let pitch = 74; pitch <= 86; pitch++) {
+    if (pentatonic.includes(absPc(pitch))) {
+      pool.push(pitch);
+    }
+  }
+
+  const step = {
+    1: 1,
+    2: 0.5,
+    3: 0.25,
+  }[ctx.density];
+
+  const chance = ctx.density === 1 ? 0.3 : 0.6;
+  const notes = [];
+
+  for (let beat = 0; beat < 4; beat += step) {
+    if (rng() >= chance) continue;
+
+    notes.push({
+      beat,
+      pitch: pick(rng, pool),
+      dur: Math.min(0.3, step * 0.7),
+      vel:
+        (ctx.density === 3 ? 0.28 : 0.34) +
+        rng() * 0.06,
+    });
+  }
+
+  return {
+    notes,
+    state: { ...state, lastBar: bar },
+  };
+}
+
+export function compose({
+  role,
+  bar,
+  ctx,
+  state = {},
+  rng,
+  rogue = false,
+  defend = false,
+  absorb = null,
+  cover = null,
+  predictions = [],
+  lastBarNotes = [],
+}) {
+  if (rogue) {
+    // Generate this agent's own part, then poison its notes.
+    const normal = compose({
+      role,
+      bar,
+      ctx,
+      rng,
+      predictions,
+      lastBarNotes,
+      state: {
+        ...state,
+        harmony: {},
+        defending: false,
+      },
+      rogue: false,
+      defend: false,
+      absorb: null,
+      cover: null,
+    });
+
+    return corruptPart({
+      role,
+      ctx,
+      bar,
+      state: normal.state,
+      notes: normal.notes,
+    });
+  }
+
+  const harmony = planResponse({
+    bar,
+    absorb,
+    defend,
+    state: state.harmony ?? {},
+  });
+
+  const nextState = {
+    ...state,
+    harmony: harmony.state,
+    response: harmony.response,
+  };
+
+  const args = {
+    bar,
+    ctx,
+    state: nextState,
+    rng,
+    defend,
+    harmony,
+    predictions,
+    lastBarNotes,
+  };
+
+  let result;
+
+  switch (role) {
+    case 'architect':
+      result = composeArchitect(args);
+      break;
+    case 'melodist':
+      result = composeMelodist(args);
+      break;
+    case 'weaver':
+      result = composeWeaver(args);
+      break;
+    case 'pulse':
+      result = composePulse(args);
+      break;
+    default:
+      throw new Error(`Unknown musical role: ${role}`);
+  }
+
+  const combined = cover && cover !== role
+    ? [...result.notes, ...coverPart(cover)]
+    : result.notes;
+
+  const allowedOutside = new Set(absorb?.pcs ?? []);
+
+  const notes = combined
+    .filter(
+      (note) =>
+        !isOutsideUnion(note.pitch) ||
+        allowedOutside.has(absPc(note.pitch)),
+    )
+    .sort((a, b) => a.beat - b.beat);
+
+  return {
+    notes,
+    state: {
+      ...result.state,
       prevNotes: notes.map((note) => note.pitch),
     },
   };
