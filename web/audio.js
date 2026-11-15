@@ -94,34 +94,73 @@ export function createAudio({
           return rogueInstruments[role];
         }
 
+        // Ominous, not beeping: a detuned saw growl that swells in
+        // slowly, darkened by a lowpass, with a slow wobble, plus a
+        // sub-octave sine for weight. Mostly dry so it cuts through,
+        // with some reverb so it hangs in the hall like a shadow.
+        const darken = keep(
+          new Tone.Filter({
+            frequency: phoneSpeaker ? 1400 : 900,
+            type: 'lowpass',
+            Q: 2,
+          }),
+        );
+        darken.connect(rogueGain);
+        darken.connect(master); // reverb send
+
         const distortion = keep(
           new Tone.Distortion({
-            distortion: 0.25,
+            distortion: 0.45,
             oversample: '2x',
           }),
         );
+        distortion.connect(darken);
 
-        distortion.connect(rogueGain);
+        const wobble = keep(
+          new Tone.Vibrato({ frequency: 3.2, depth: 0.12 }),
+        );
+        wobble.connect(distortion);
 
-        const instrument = keep(
+        const growl = keep(
           new Tone.PolySynth(Tone.Synth, {
             oscillator: {
               type: 'fatsawtooth',
-              count: 2,
-              spread: 18,
+              count: 3,
+              spread: 34,
             },
             envelope: {
-              attack: 0.002,
-              decay: 0.06,
-              sustain: 0,
-              release: 0.025,
+              attack: 0.35,
+              decay: 0.6,
+              sustain: 0.7,
+              release: 2.5,
             },
           }),
         );
+        growl.volume.value = -14;
+        growl.maxPolyphony = 16;
+        growl.connect(wobble);
 
-        instrument.volume.value = -4;
-        instrument.maxPolyphony = 16;
-        instrument.connect(distortion);
+        const sub = keep(
+          new Tone.PolySynth(Tone.Synth, {
+            oscillator: { type: 'sine' },
+            envelope: {
+              attack: 0.5,
+              decay: 0.4,
+              sustain: 0.8,
+              release: 3,
+            },
+          }),
+        );
+        sub.volume.value = phoneSpeaker ? -40 : -12;
+        sub.maxPolyphony = 16;
+        sub.connect(darken);
+
+        const instrument = {
+          triggerAttackRelease(freq, duration, time, vel) {
+            growl.triggerAttackRelease(freq, duration, time, vel);
+            sub.triggerAttackRelease(freq / 2, duration, time, vel);
+          },
+        };
 
         rogueInstruments[role] = instrument;
         return instrument;
@@ -387,6 +426,16 @@ export function createAudio({
     }
 
     let pitch = note.pitch;
+    let length = duration;
+
+    // Melkor sounds low and long: drop to a dark register (same pitch
+    // class, so the clash is unchanged) and let each note swell for
+    // 1.5 beats instead of a short stab.
+    if (note.rogue) {
+      const ceiling = phoneSpeaker ? 62 : 55;
+      while (pitch > ceiling) pitch -= 12;
+      length = Math.max(duration, 1.5 * BEAT_SECONDS);
+    }
 
     if (phoneSpeaker) {
       while (pitch < 50) {
@@ -401,7 +450,7 @@ export function createAudio({
 
       instrument.triggerAttackRelease(
         Tone.Frequency(pitch, 'midi').toFrequency(),
-        duration,
+        length,
         time,
         note.vel,
       );
