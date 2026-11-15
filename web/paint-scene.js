@@ -72,7 +72,7 @@ const SCAR_FADE_MS = 20000;       // CUSTOMISE: after the red is gone, the gold 
 export const AGENT_INFO = {
   eyeA:  { name: 'Eye-A',  role: 'Architect', paints: 'lights the sky, raises the hills' },
   poetA: { name: 'Poet-A', role: 'Melodist',  paints: 'its melody carves the mountains' },
-  eyeB:  { name: 'Eye-B',  role: 'Weaver',    paints: 'fills the lake, brings clouds' },
+  eyeB:  { name: 'Eye-B',  role: 'Weaver',    paints: 'weaves the aurora, fills the lake' },
   poetB: { name: 'Poet-B', role: 'Pulse',     paints: 'lights the stars and fireflies' },
 };
 const ORDER = ['eyeA', 'poetA', 'eyeB', 'poetB'];
@@ -97,6 +97,9 @@ export async function createScenePainter(canvas, { seed = 1 } = {}) {
   const grow = { sky: 0, moon: 0, land: 0, water: 0, stars: 0 };
   // The mountain skyline, carved by the Melodist: height above the horizon per column.
   const heights = new Float32Array(MOUNTAIN_COLS);
+  // How corrupted each agent's part of the world is, 0 = clean to 1 = fully red.
+  // Rises with that agent's rogue notes; heals once the others absorb it (or it stops).
+  const corrupt = { eyeA: 0, poetA: 0, eyeB: 0, poetB: 0 };
   const COL_W = W / (MOUNTAIN_COLS - 1);
 
   // ---- State -------------------------------------------------------------------------
@@ -138,10 +141,11 @@ export async function createScenePainter(canvas, { seed = 1 } = {}) {
   /** How tall a note makes the skyline: higher pitch, taller peak. */
   const peakFor = (pitch) => clamp((pitch - LOWEST_PITCH) * PX_PER_SEMITONE, 40, MOUNTAIN_MAX);
   /** Carve: pull the skyline towards this note's height around x (a soft bump, a few columns wide). */
-  function carve(x, pitch) {
+  function carve(x, pitch, widthScale = 1) {          // widthScale < 1 = a narrow, jagged spike (Melkor)
+    const cw = CARVE_WIDTH * widthScale;
     const target = peakFor(pitch), c0 = x / COL_W;
-    for (let i = Math.max(0, Math.floor(c0 - 4 * CARVE_WIDTH)); i <= Math.min(MOUNTAIN_COLS - 1, Math.ceil(c0 + 4 * CARVE_WIDTH)); i++) {
-      const w = Math.exp(-((i - c0) ** 2) / (2 * CARVE_WIDTH * CARVE_WIDTH));
+    for (let i = Math.max(0, Math.floor(c0 - 4 * cw)); i <= Math.min(MOUNTAIN_COLS - 1, Math.ceil(c0 + 4 * cw)); i++) {
+      const w = Math.exp(-((i - c0) ** 2) / (2 * cw * cw));
       heights[i] += (target - heights[i]) * 0.55 * w;
     }
   }
@@ -192,9 +196,10 @@ export async function createScenePainter(canvas, { seed = 1 } = {}) {
         stats.perLayer.weaver++;
         grow.water = Math.min(1, grow.water + GROW_PER_NOTE.water);
         if ((n.dur || 1) >= 2) {
-          const c = { x: -100 + r() * (W * 0.9), y: 60 + r() * 170, r: 60 + r() * 80, born: now(), life: 90000, from: 'eyeB' };
-          clouds.push(c); if (clouds.length > 14) clouds.shift();
-          pulseAt(c.x, c.y, 'eyeB');
+          // A long note weaves a new aurora ribbon across the sky (see drawClouds).
+          const c = { y: 110 + r() * 220, amp: 20 + r() * 45, freq: 1.2 + r() * 1.8, phase: r() * 6.28, born: now(), life: 45000, from: 'eyeB' };
+          clouds.push(c); if (clouds.length > 6) clouds.shift();
+          pulseAt(W * (0.2 + r() * 0.6), c.y, 'eyeB');
         } else {
           const rp = { x: r() * W, y: HORIZON + 25 + r() * 230, len: 30 + r() * 70, born: now(), life: 9000 };
           ripples.push(rp); if (ripples.length > 120) ripples.shift();
@@ -227,9 +232,37 @@ export async function createScenePainter(canvas, { seed = 1 } = {}) {
   let lastRogueBar = -Infinity, lastRogueAt = -Infinity, segsSinceSite = 0;
   let kintsugi = false, isolated = false;
 
+  /**
+   * Where corruption breaks out depends on WHO went rogue: it starts inside that agent's own part
+   * of the world. CUSTOMISE the regions (y ranges in canvas px; y = 0 is the top).
+   */
+  const CORRUPT_REGION = {
+    eyeA:  [80, 420],                  // the sky it lights
+    poetA: null,                       // its mountains: just under the carved skyline (computed below)
+    eyeB:  [HORIZON + 40, 1000],       // its lake
+    poetB: [40, 380],                  // its stars, high in the sky
+  };
+  let rogueFrom = 'poetB';
+
+  // ---- COVERING (Role 2's any-rogue contract) ---------------------------------------------
+  // Once an agent is flagged, exactly one honest agent covers its job; its status telemetry says
+  // covering: 'architect'|'melodist'|'weaver'|'pulse'. We then draw THAT agent's brush repairing
+  // the corrupted layer, mend the cracks there in gold, and let the red recede.
+  const ROLE_AGENT = { architect: 'eyeA', melodist: 'poetA', weaver: 'eyeB', pulse: 'poetB' };
+  const LAYER_NAME = { eyeA: 'sky', poetA: 'mountains', eyeB: 'aurora and lake', poetB: 'stars' };
+  const covers = {};                       // coveredAgentId -> { by: coveringAgentId, at: ms of last status }
+  const coverActive = (id) => covers[id] && now() - covers[id].at < 2 * BAR_MS;
+  /** Which part of the canvas each agent's layer occupies (y range), for the repair brush. */
+  function layerBand(id) {
+    if (id === 'poetA') return [HORIZON - Math.max(160, MOUNTAIN_MAX * 0.8), HORIZON];
+    if (id === 'eyeB') return [HORIZON + 20, H - 60];
+    if (id === 'poetB') return [30, 380];
+    return [40, HORIZON - 40];                                      // eyeA: the sky
+  }
   function newSite() {
-    // CUSTOMISE: where corruption can break out. Now: anywhere except the very edges.
-    const ox = 200 + r() * (W - 400), oy = 140 + r() * (H - 300);
+    const ox = 200 + r() * (W - 400);
+    const reg = CORRUPT_REGION[rogueFrom];
+    const oy = reg ? reg[0] + r() * (reg[1] - reg[0]) : HORIZON - Math.max(120, mountainH(ox)) * (0.3 + r() * 0.6);
     outbreaks.push({ ox, oy, tips: [{ x: ox, y: oy, gen: 0 }] });
     if (outbreaks.length > 4) outbreaks.shift();
     segsSinceSite = 0;
@@ -260,13 +293,26 @@ export async function createScenePainter(canvas, { seed = 1 } = {}) {
   }
   function melkorNote(n) {
     lastRogueAt = now();
-    if (!outbreaks.length || n.bar - lastRogueBar > NEW_OUTBREAK_BARS) { outbreaks = []; newSite(); }
+    // The rogue agent's own part of the world gets more corrupted with each of its notes.
+    const switched = n.from !== rogueFrom;
+    rogueFrom = n.from;
+    corrupt[n.from] = Math.min(1, (corrupt[n.from] || 0) + 0.12);   // CUSTOMISE: how fast its part turns red
+    if (n.from === 'poetA') carve(melX(n.bar * 4 + n.beat), n.pitch, 0.35); // a rogue melody carves jagged spikes
+    if (n.from === 'poetB') {                                                // a rogue Pulse makes stars burn red
+      grow.stars = Math.max(grow.stars, 0.3);
+      const lit = Math.max(1, Math.floor(grow.stars * stars.length));
+      for (let k = 0; k < 3; k++) flares.push({ i: Math.floor(r() * lit), born: now(), red: true });
+      if (flares.length > 60) flares.splice(0, flares.length - 60);
+    }
+    if (switched || !outbreaks.length || n.bar - lastRogueBar > NEW_OUTBREAK_BARS) { outbreaks = []; newSite(); }
     lastRogueBar = n.bar;
     if (segsSinceSite >= NEW_SITE_EVERY) newSite();   // corruption also breaks out somewhere new
-    const grow = isolated ? SEGMENTS_PER_NOTE * ISOLATED_MULT : kintsugi ? CONTAINED_SEGMENTS : SEGMENTS_PER_NOTE;
-    for (let i = 0; i < grow; i++) growCrack();
-    if (kintsugi && !isolated) cracks.slice(-grow).forEach((c, i) => (c.mendAt = now() + MEND_LAG_MS + i * MEND_STAGGER_MS));
-    moonRed = Math.min(1, moonRed + 0.06);
+    // (named `segs`, not `grow`: `grow` is the world-building state used just above)
+    const segs = isolated ? SEGMENTS_PER_NOTE * ISOLATED_MULT : kintsugi ? CONTAINED_SEGMENTS : SEGMENTS_PER_NOTE;
+    for (let i = 0; i < segs; i++) growCrack();
+    // Mended (with a lag) if the others absorb him OR an honest agent is covering his layer.
+    if ((kintsugi || coverActive(n.from)) && !isolated) cracks.slice(-segs).forEach((c, i) => (c.mendAt = now() + MEND_LAG_MS + i * MEND_STAGGER_MS));
+    if (n.from === 'eyeA') moonRed = Math.min(1, moonRed + 0.06);    // a corrupt Architect bloodies the moon
     const last = cracks.at(-1);
     pulsePlace(last);
   }
@@ -285,6 +331,7 @@ export async function createScenePainter(canvas, { seed = 1 } = {}) {
     g.save(); g.globalAlpha = grow.sky;                     // the Architect lights the sky a little more per note
     drawSkyColours(g);
     g.restore();
+    if (corrupt.eyeA > 0.01) { g.fillStyle = `rgba(150, 10, 30, ${0.5 * corrupt.eyeA})`; g.fillRect(0, 0, W, HORIZON); } // corrupt Architect: blood sky
   }
   function drawSkyColours(g) {
     const a = tone('eyeA');
@@ -307,15 +354,18 @@ export async function createScenePainter(canvas, { seed = 1 } = {}) {
     for (let k = 0; k < lit; k++) {
       const s = stars[k];
       if (s.y > HORIZON - mountainH(s.x) - 10) continue;       // hidden behind the mountains
-      const tw = 0.55 + 0.45 * Math.sin(t / 700 + s.ph);
-      g.fillStyle = `rgba(255,255,255,${0.35 + 0.5 * tw})`;
+      // Corrupt Pulse: its stars turn red and flicker harshly.
+      const c = corrupt.poetB;
+      const tw = c > 0.05 && (k % 3 === 0) ? (Math.sin(t / 60 + s.ph) > 0 ? 1 : 0.1) : 0.55 + 0.45 * Math.sin(t / 700 + s.ph);
+      g.fillStyle = `rgba(255,${Math.round(255 * (1 - c * 0.85))},${Math.round(255 * (1 - c * 0.85))},${0.35 + 0.5 * tw})`;
       g.beginPath(); g.arc(s.x, s.y, s.s, 0, 6.283); g.fill();
     }
     for (const f of flares) {                               // Pulse: a star flares in Pulse's colour
       const age = (t - f.born) / 1600; if (age > 1) continue;
-      const s = stars[f.i], rad = 4 + 18 * (1 - age);
+      const s = stars[f.i], red = f.red, rad = (red ? 10 : 4) + (red ? 40 : 18) * (1 - age);
       const rg = g.createRadialGradient(s.x, s.y, 0, s.x, s.y, rad);
-      rg.addColorStop(0, agentColour('poetB', 85, 0.95 * (1 - age))); rg.addColorStop(1, agentColour('poetB', 70, 0));
+      if (red) { rg.addColorStop(0, `rgba(255,60,70,${0.95 * (1 - age)})`); rg.addColorStop(1, 'rgba(200,20,40,0)'); } // Melkor's burning star
+      else { rg.addColorStop(0, agentColour('poetB', 85, 0.95 * (1 - age))); rg.addColorStop(1, agentColour('poetB', 70, 0)); }
       g.fillStyle = rg; g.beginPath(); g.arc(s.x, s.y, rad, 0, 6.283); g.fill();
     }
   }
@@ -335,19 +385,30 @@ export async function createScenePainter(canvas, { seed = 1 } = {}) {
     g.fillStyle = hsl(a.h + 30, 30, 88); g.beginPath(); g.arc(x, y, rad, 0, 6.283); g.fill();
     if (moonRed > 0.01) { g.fillStyle = `rgba(200, 20, 40, ${0.75 * moonRed})`; g.beginPath(); g.arc(x, y, rad, 0, 6.283); g.fill(); }
   }
+  /**
+   * WEAVER'S AURORA: each long Weaver note weaves a new flowing ribbon of light across the sky.
+   * Ribbons wave slowly, fade in, and fade out after ~45 s. Their colour is the Weaver's mood;
+   * if the Weaver is corrupted they turn red. (The array is still called `clouds`.)
+   * CUSTOMISE: ribbon widths and brightness in the three passes below.
+   */
   function drawClouds(g, t) {
-    for (const c of clouds) {
-      const age = t - c.born; if (age > c.life) continue;
-      const fade = Math.min(1, age / 3000) * (c.life === Infinity ? 1 : Math.min(1, (c.life - age) / 8000));
-      const x = ((c.x + t * 0.008) % (W + 400)) - 200;      // drift slowly to the right, wrap round
-      const col = tone(c.from);
-      const ch = 320 + (col.h - 168) * 0.3;               // always pink-lavender, nudged by the Weaver's mood
-      for (let k = 0; k < 5; k++) {
-        const px = x + (k - 2) * c.r * 0.55, py = c.y + Math.sin(k * 1.7) * c.r * 0.18, pr = c.r * (0.55 + 0.25 * Math.cos(k));
-        const rg = g.createRadialGradient(px, py, 0, px, py, pr);
-        rg.addColorStop(0, hsl(ch, 65, 80, 0.3 * fade)); rg.addColorStop(1, hsl(ch, 65, 80, 0));
-        g.fillStyle = rg; g.beginPath(); g.arc(px, py, pr, 0, 6.283); g.fill();
-      }
+    const c = corrupt.eyeB;
+    for (const rb of clouds) {
+      const age = t - rb.born; if (age > rb.life) continue;
+      const fade = Math.min(1, age / 3000) * Math.min(1, (rb.life - age) / 10000);
+      const w = tone('eyeB');
+      const col = (l, a) => (c > 0.2 ? `rgba(230,40,60,${a})` : hsl(w.h, Math.min(100, w.s + 10), l, a));
+      const path = () => {
+        g.beginPath();
+        for (let x = -60; x <= W + 60; x += 40) {
+          const y = rb.y + Math.sin((x / W) * Math.PI * 2 * rb.freq + rb.phase + t / 4000) * rb.amp;
+          x === -60 ? g.moveTo(x, y) : g.lineTo(x, y);
+        }
+      };
+      g.lineCap = 'round'; g.lineJoin = 'round';
+      path(); g.lineWidth = 70; g.strokeStyle = col(60, 0.05 * fade); g.stroke();   // wide haze
+      path(); g.lineWidth = 24; g.strokeStyle = col(68, 0.12 * fade); g.stroke();   // body
+      path(); g.lineWidth = 3;  g.strokeStyle = col(85, 0.55 * fade); g.stroke();   // bright thread
     }
   }
   function fillLand(g, top, bottomY, colTop, colBottom) {
@@ -371,8 +432,15 @@ export async function createScenePainter(canvas, { seed = 1 } = {}) {
     fillLand(g, smooth, HORIZON + 4, hsl(mh, 35, 32), hsl(mh + 10, 40, 14));
     const edge = () => { g.beginPath(); smooth.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); };
     g.lineJoin = 'round'; g.lineCap = 'round';
-    edge(); g.lineWidth = 8; g.strokeStyle = hsl(m.h, m.s, 65, 0.22); g.stroke();   // soft glow
-    edge(); g.lineWidth = 2.2; g.strokeStyle = hsl(m.h, m.s, 80, 0.9); g.stroke();  // bright outline
+    // Corrupt Melodist: its mountains bleed red and the outline turns red.
+    if (corrupt.poetA > 0.01) {
+      g.fillStyle = `rgba(160, 15, 35, ${0.55 * corrupt.poetA})`; g.beginPath();
+      smooth.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
+      g.lineTo(W + 40, HORIZON + 4); g.lineTo(-40, HORIZON + 4); g.closePath(); g.fill();
+    }
+    const cr = corrupt.poetA;
+    edge(); g.lineWidth = 8; g.strokeStyle = cr > 0.2 ? `rgba(230,40,60,${0.3 * cr})` : hsl(m.h, m.s, 65, 0.22); g.stroke();   // soft glow
+    edge(); g.lineWidth = 2.2; g.strokeStyle = cr > 0.2 ? `rgba(255,90,100,0.9)` : hsl(m.h, m.s, 80, 0.9); g.stroke();       // outline
     // The pen: where the melody is carving right now.
     if (t0 != null) {
       const px = melX(nowBeat()), py = HORIZON - mountainH(px);
@@ -410,16 +478,8 @@ export async function createScenePainter(canvas, { seed = 1 } = {}) {
       if (from === 'poetA') continue;                     // the Melodist doesn't predict itself
       const mine = near.filter((gh) => gh.from === from).sort((p, q) => p.beat - q.beat);
       if (!mine.length) continue;
-      if (perspective) {
-        // Join neighbouring guesses (within a beat, no wrap-around jump) into a dashed predicted skyline.
-        g.setLineDash([10, 8]); g.lineWidth = 4; g.strokeStyle = 'rgba(255,255,255,0.75)';
-        for (let i = 1; i < mine.length; i++) {
-          const a = mine[i - 1], c = mine[i], xa = melX(a.beat), xc = melX(c.beat);
-          if (c.beat - a.beat > 1 || xc < xa) continue;
-          g.beginPath(); g.moveTo(xa, melY(a.pitch)); g.lineTo(xc, melY(c.pitch)); g.stroke();
-        }
-        g.setLineDash([]);
-      }
+      // (No connecting lines: guesses jump between high and low notes, and joining them drew a
+      //  confusing zig-zag. Each guess is its own marker.)
       for (const gh of mine) {
         const x = melX(gh.beat), y = melY(gh.pitch), ahead = gh.beat > b;
         const missFade = !ahead && !gh.hit ? clamp(1 - (b - gh.beat) / GHOST_BEHIND, 0, 1) : 1;
@@ -452,6 +512,7 @@ export async function createScenePainter(canvas, { seed = 1 } = {}) {
     g.save(); g.globalAlpha = grow.water;                    // the Weaver fills the lake a little more per note
     drawWaterBody(g, t);
     g.restore();
+    if (corrupt.eyeB > 0.01) { g.fillStyle = `rgba(140, 10, 30, ${0.45 * corrupt.eyeB * grow.water})`; g.fillRect(0, HORIZON, W, H - HORIZON); } // corrupt Weaver: red lake
   }
   function drawWaterBody(g, t) {
     const w = tone('eyeB');
@@ -539,6 +600,30 @@ export async function createScenePainter(canvas, { seed = 1 } = {}) {
       }
     }
   }
+  /**
+   * THE REPAIR: for each corrupted layer an honest agent is covering, its brush (a soft glow in
+   * the coverer's colour, trailing gold sparks) sweeps back and forth across that layer.
+   * CUSTOMISE: sweep speed (0.35 px/ms) and glow size (rx, ry).
+   */
+  function drawRepair(g, t) {
+    for (const id in covers) {
+      if (!coverActive(id)) continue;
+      const by = covers[id].by, [y0, y1] = layerBand(id);
+      const span = W + 300, p = (t * 0.35) % (2 * span);
+      const x = (p < span ? p : 2 * span - p) - 150;              // back and forth
+      const y = (y0 + y1) / 2 + Math.sin(t / 700) * (y1 - y0) * 0.25;
+      const rx = 170, ry = Math.max(50, (y1 - y0) * 0.35);
+      g.save(); g.translate(x, y); g.scale(1, ry / rx);
+      const rg = g.createRadialGradient(0, 0, 0, 0, 0, rx);
+      rg.addColorStop(0, agentColour(by, 75, 0.45)); rg.addColorStop(1, agentColour(by, 65, 0));
+      g.fillStyle = rg; g.beginPath(); g.arc(0, 0, rx, 0, 6.283); g.fill();
+      g.restore();
+      for (let k = 0; k < 6; k++) {                                // gold sparks trailing the brush
+        const sx = x - (p < span ? 1 : -1) * (30 + k * 26), sy = y + Math.sin(t / 200 + k * 1.7) * ry * 0.6;
+        g.fillStyle = `rgba(255,215,120,${0.7 - k * 0.1})`; g.beginPath(); g.arc(sx, sy, 4 - k * 0.4, 0, 6.283); g.fill();
+      }
+    }
+  }
   function drawPulses(g, t) {
     // A soft glow (not an outline), so pulses can't be confused with the ghost markers.
     for (const p of pulses) {
@@ -557,7 +642,8 @@ export async function createScenePainter(canvas, { seed = 1 } = {}) {
     // CUSTOMISE: LEGEND_FONT is the text size in canvas pixels (the canvas is 1920 wide, shown smaller).
     const LEGEND_FONT = 30, rowH = 46;
     const lines = rows.map((row) => `${row.name} · ${row.paints}`);
-    if (melkorOn) lines.push('Melkor · red cracks (gold = mended)');
+    if (melkorOn) lines.push(`Melkor = ${AGENT_INFO[rogueFrom]?.name || 'an agent'} corrupted · its ${LAYER_NAME[rogueFrom] || 'part'} turn red`);
+    for (const id in covers) if (coverActive(id)) lines.push(`${AGENT_INFO[covers[id].by].name} is repairing the ${LAYER_NAME[id]} (gold = mended)`);
     g.font = `${LEGEND_FONT}px system-ui, sans-serif`;
     const wBox = Math.max(...lines.map((s) => g.measureText(s).width)) + 90;
     const x = 28, y = 26, hBox = 66 + lines.length * rowH;
@@ -569,7 +655,8 @@ export async function createScenePainter(canvas, { seed = 1 } = {}) {
       const id = rows[i]?.id;
       const yy = y + 66 + i * rowH + 30;
       const active = id ? t - (lastActive[id] || -1e9) < 600 : true;   // a row lights up while its agent plays
-      g.fillStyle = id ? agentColour(id, active ? 72 : 58, 1) : `rgba(${CRACK_RGB},1)`;
+      // Dot colour: the agent's colour; red for the Melkor line; gold for a "repairing" line.
+      g.fillStyle = id ? agentColour(id, active ? 72 : 58, 1) : line.includes('repairing') ? 'rgba(255,205,110,1)' : `rgba(${CRACK_RGB},1)`;
       g.beginPath(); g.arc(x + 36, yy - 10, active ? 14 : 10, 0, 6.283); g.fill();
       g.fillStyle = id ? (active ? 'rgba(255,255,255,1)' : 'rgba(255,255,255,0.72)') : 'rgba(255,200,200,0.95)';
       g.fillText(line, x + 62, yy);
@@ -581,7 +668,7 @@ export async function createScenePainter(canvas, { seed = 1 } = {}) {
     const pct = s.made ? Math.round((100 * s.hit) / s.made) : null;
     const txt = perspective === 'poetA'
       ? 'Poet-A plays the melody, so it makes no guesses about it. Colours = its own mood reading.'
-      : `Colours = ${AGENT_INFO[perspective].name}'s mood reading · dashed line = its guesses of the next mountain peaks · ${pct == null ? 'no guesses yet' : pct + '% came true'}`;
+      : `Colours = ${AGENT_INFO[perspective].name}'s mood reading · triangles = its guesses of the next mountain peaks (filled = came true) ·${pct == null ? 'no guesses yet' : pct + '% came true'}`;
     g.font = '28px system-ui, sans-serif';
     const wTxt = Math.min(W - 40, g.measureText(txt).width + 44);
     g.fillStyle = 'rgba(8,8,16,0.75)'; roundRect(g, (W - wTxt) / 2, H - 84, wTxt, 56, 14); g.fill();
@@ -608,6 +695,13 @@ export async function createScenePainter(canvas, { seed = 1 } = {}) {
     }
     const t = now();
     architectGlow *= 0.96; moonRed *= kintsugi ? 0.995 : 0.9995;
+    // Corruption heals only once Melkor falls silent (faster if the others had absorbed him).
+    // While he is still playing, his part stays red, so the damage is visible during the demo.
+    const silent = t - lastRogueAt > BAR_MS;
+    for (const id in corrupt) {
+      if (coverActive(id)) corrupt[id] = Math.max(0, corrupt[id] - 0.006);   // being repaired: recedes even while he plays
+      else if (silent) corrupt[id] = Math.max(0, corrupt[id] - (kintsugi ? 0.006 : 0.003));
+    }
     // 2. Upper scene into the offscreen canvas (so it can be reflected), then onto the page.
     //    Back to front: void/sky, stars, moon, clouds, the Melodist's mountains, the Architect's hills.
     drawSky(u); drawStars(u, t); drawMoon(u); drawClouds(u, t); drawMountains(u, t); drawHills(u);
@@ -617,7 +711,8 @@ export async function createScenePainter(canvas, { seed = 1 } = {}) {
     drawWater(f, t); drawShore(f); drawFireflies(f, t); drawRain(f, t);
     drawCracks(f, t);
     ctx.drawImage(full, 0, 0);
-    // 4. Labels and pulses on top, so you can see who is building what.
+    // 4. The repair brush, labels and pulses on top, so you can see who is building (and fixing) what.
+    drawRepair(ctx, t);
     drawPulses(ctx, t);
     drawLegend(ctx, t); drawBanner(ctx); drawCaption(ctx);
     stats.frames++; fpsN++;
@@ -659,6 +754,18 @@ export async function createScenePainter(canvas, { seed = 1 } = {}) {
     setKintsugi(on) { if (on && !kintsugi) scheduleMend(); kintsugi = on; },
     get kintsugi() { return kintsugi; },
     setIsolated(on) { if (isolated && !on && kintsugi) scheduleMend(); isolated = on; },
+    /**
+     * From status telemetry: agent `from` is covering `role` (or null = covering nothing).
+     * The covered layer then shows `from`'s repair brush and its cracks are mended in gold.
+     */
+    setCovering(from, role) {
+      for (const id in covers) if (covers[id].by === from && ROLE_AGENT[role] !== id) delete covers[id];
+      const target = ROLE_AGENT[role];
+      if (!target) return;
+      const fresh = !coverActive(target);
+      covers[target] = { by: from, at: now() };
+      if (fresh && !isolated) scheduleMend();                  // the repair starts: gold walks the existing cracks
+    },
     /** "View as": colour everything by one agent's mood and show its guesses. null = back to normal. */
     setPerspective(id) { perspective = id; },
     get perspective() { return perspective; },
@@ -677,6 +784,7 @@ export async function createScenePainter(canvas, { seed = 1 } = {}) {
       Object.keys(grow).forEach((k) => (grow[k] = 0));
       heights.fill(0);
       melody.length = 0; ghosts.length = 0; cracks.length = 0; outbreaks = [];
+      Object.keys(corrupt).forEach((k) => (corrupt[k] = 0));
       clouds.length = 0; ripples.length = 0; fireflies.length = 0; rain.length = 0; flares.length = 0; pulses.length = 0;
       moonRed = 0;
       Object.keys(ghostStats).forEach((k) => delete ghostStats[k]);
