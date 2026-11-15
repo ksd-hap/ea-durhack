@@ -91,7 +91,8 @@
      CUSTOMISE: 300px is the metrics panel's width.
      =========================================================================== */
   main { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 10px; padding: 0 12px 12px; min-height: 0; }
-
+  body.panel-hidden main { grid-template-columns: minmax(0, 1fr) 0; } /* panel column shrinks to 0 */
+  body.panel-hidden #metrics { display: none; }                       /* and the panel disappears */
   /* 3a. PAINTING. Three canvases are stacked in the SAME grid cell, so they line up exactly
      (bottom to top, in the order paint-p5.js inserts them):
          #paint         = the painting (p5 swaps in its own canvas but keeps this id)
@@ -118,7 +119,6 @@
   #m-phase[data-phase="Void"] { color: var(--violet); }    /* cut off */
   #m-rx { font-size: 20px; font-weight: 700; }
   body[data-phase="void"] #m-rx { color: var(--violet); }
-  #m-thumb { width: 100%; max-height: 120px; object-fit: cover; border-radius: 6px; margin-top: 4px; opacity: .85; } /* small: it's the input, not the show */
   #m-caption { font-size: 12px; color: var(--muted); }
   table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
   td { padding: 3px 2px; border-bottom: 1px solid var(--line); font-size: 13px; }
@@ -156,6 +156,7 @@
     <span class="sep"></span>
     <!-- Network faults -->
     <button id="btn-rehearse" title="Close the hub for good: no more start or random-rotation messages">End rehearsal</button>
+    <!-- Letters between kbd tags show the shortcut which is implemented in stage.js-->
     <button id="btn-cut">Cut<kbd>C</kbd></button>
     <button id="btn-restore">Restore<kbd>R</kbd></button>
     <label class="loss">loss <input id="loss" type="range" min="0" max="1" step="0.05" value="0"> <span id="loss-val">0.00</span></label>
@@ -177,6 +178,7 @@
     <button id="btn-ghosts" class="on" title="Show or hide the ghost predictions">Ghosts on<kbd>G</kbd></button>
     <button id="btn-void" title="Wipe the painting back to the empty void; the music keeps going and rebuilds the world">Restart from void<kbd>V</kbd></button>
     <button id="btn-export">Export painting<kbd>E</kbd></button>
+    <button id="btn-panel" title="Show or hide the stats panel">Panel<kbd>P</kbd></button>
   </div>
 
   <!-- =========================================================================
@@ -218,8 +220,7 @@
       <!-- The right answer for the current scene, so judges can check the agents -->
       <!-- The INPUT, not a picture of the painting: the agents hear this scene and sing a world from it. -->
       <h3>What they are listening to</h3>
-      <div class="hint">This is the input, not the painting. Each agent senses only one part of it (the photo, a crop, or a caption), guesses its mood, and plays. The painting is the world their music builds.</div>
-      <img id="m-thumb" alt="" hidden>
+      <div class="hint">This is the input, not the painting. Each agent senses only one part of the scene (its photo, a crop, or a caption), guesses its mood, and plays. The painting is the world their music builds.</div>
       <div id="m-caption"></div>
       <div class="kv"><span>Its real mood</span><b id="m-truth">—</b></div>
 
