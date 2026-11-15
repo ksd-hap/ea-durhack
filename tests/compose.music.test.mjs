@@ -481,7 +481,7 @@ test('corrupted Pulse keeps its own register despite response inputs', () => {
   assert(out.notes.length >= 2);
 
   assert.equal(
-    new Set(out.notes.map((n) => n.beat)).size,
+    new Set(out.notes.map((n) => `${n.beat}:${n.pitch}`)).size,
     out.notes.length,
   );
 

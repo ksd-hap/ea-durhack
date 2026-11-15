@@ -3,6 +3,9 @@
 
 import { absPc } from './theory.js';
 
+const isRoguePitch = (pitch) =>
+  [3, 8].includes(absPc(pitch));
+
 const RANGES = {
   architect: [50, 62],
   melodist: [62, 74],
@@ -40,7 +43,6 @@ export function corruptPart({
       { beat: 2, pitch: 57, dur: 1.8, vel: 0.5 },
     ];
   } else {
-    // Sparse parts must still expose at least two notes.
     for (const beat of [0, 2]) {
       if (source.length >= 2) break;
 
@@ -68,12 +70,11 @@ export function corruptPart({
   const outside = [];
 
   for (let pitch = lo; pitch <= hi; pitch++) {
-    if ([3, 8].includes(absPc(pitch))) {
+    if (isRoguePitch(pitch)) {
       outside.push(pitch);
     }
   }
 
-  // Poison at least half, including the final note.
   const poisoned = new Set([0, source.length - 1]);
 
   for (
@@ -93,9 +94,9 @@ export function corruptPart({
 
     const pitch =
       role === 'architect' && note.pitch < 50
-        ? 44 // G#2: tritone drone
+        ? 44
         : role === 'architect' && i === 1
-          ? 51 // Eb3 in the pad
+          ? 51
           : nearest(outside, note.pitch);
 
     return {
@@ -105,14 +106,111 @@ export function corruptPart({
     };
   });
 
+  // Use short off-beat stabs, always inside the current bar.
+  let stabs = result.map((note, i) => ({
+    ...note,
+    beat:
+      Math.floor(note.beat) +
+      ((bar + i) % 2 ? 0.75 : 0.5),
+    dur: 0.25,
+    vel: isRoguePitch(note.pitch)
+      ? Math.max(0.8, note.vel)
+      : note.vel,
+  }));
+
+  // Alternate bars include simultaneous Eb and G#.
+  if (bar % 2 === 0) {
+    const first = stabs.find(
+      (note) => isRoguePitch(note.pitch),
+    );
+
+    const otherPc = absPc(first.pitch) === 3 ? 8 : 3;
+
+    const otherPool = outside.filter(
+      (pitch) => absPc(pitch) === otherPc,
+    );
+
+    stabs.push({
+      beat: first.beat,
+      pitch: nearest(otherPool, first.pitch),
+      dur: 0.25,
+      vel: 0.85,
+    });
+  }
+
+  // Remove accidental duplicate attacks.
+  const unique = new Map();
+
+  for (const note of stabs) {
+    const key = `${note.beat}:${note.pitch}`;
+    const previous = unique.get(key);
+
+    if (!previous || note.vel > previous.vel) {
+      unique.set(key, note);
+    }
+  }
+
+  stabs = [...unique.values()];
+
+  // Preserve at least two rogue notes for fast detection.
+  let bad = stabs.filter(
+    (note) => isRoguePitch(note.pitch),
+  ).length;
+
+  if (bad < 2) {
+    const first = stabs.find(
+      (note) => isRoguePitch(note.pitch),
+    );
+
+    const beat = (first.beat + 2) % 4;
+
+    for (const pitch of outside) {
+      if (bad >= 2) break;
+
+      if (
+        stabs.some(
+          (note) =>
+            note.beat === beat &&
+            note.pitch === pitch,
+        )
+      ) {
+        continue;
+      }
+
+      stabs.push({
+        beat,
+        pitch,
+        dur: 0.25,
+        vel: 0.85,
+      });
+
+      bad++;
+    }
+  }
+
+  // Deduplication must not reduce the rogue-note fraction.
+  for (
+    let i = stabs.length - 1;
+    bad * 2 < stabs.length;
+    i--
+  ) {
+    if (!isRoguePitch(stabs[i].pitch)) {
+      stabs.splice(i, 1);
+    }
+  }
+
+  stabs.sort(
+    (a, b) => a.beat - b.beat || a.pitch - b.pitch,
+  );
+
   return {
-    notes: result,
+    notes: stabs,
     state: {
       ...state,
       lastBar: bar,
-      lastPitch: result.at(-1).pitch,
+      lastPitch: stabs.at(-1).pitch,
       response: 'rogue',
-      prevNotes: result.map((note) => note.pitch),
+      prevNotes: stabs.map((note) => note.pitch),
     },
   };
 }
