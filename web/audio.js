@@ -1,11 +1,7 @@
 // audio.js — local Tone.js playback. [Role 3]
-//
 // Desktop: createAudio()
 // Phone: createAudio({ voice: 'eyeA', phoneSpeaker: true })
-//
-// voice accepts an agent ID or musical role.
-// Load vendor/tone.js first.
-// Call start() directly from the Start button or phone tap.
+// Load vendor/tone.js first. Call start() from the user's tap.
 
 const BPM = 72;
 const BEAT_SECONDS = 60 / BPM;
@@ -86,7 +82,50 @@ export function createAudio({
       reverb.connect(limiter);
       limiter.toDestination();
 
+      // Dry rogue bus bypasses the reverb.
+      const rogueGain = keep(new Tone.Gain(0.7));
+      rogueGain.connect(limiter);
+
       const instruments = Object.create(null);
+      const rogueInstruments = Object.create(null);
+
+      function ensureRogueInstrument(role) {
+        if (rogueInstruments[role]) {
+          return rogueInstruments[role];
+        }
+
+        const distortion = keep(
+          new Tone.Distortion({
+            distortion: 0.25,
+            oversample: '2x',
+          }),
+        );
+
+        distortion.connect(rogueGain);
+
+        const instrument = keep(
+          new Tone.PolySynth(Tone.Synth, {
+            oscillator: {
+              type: 'fatsawtooth',
+              count: 2,
+              spread: 18,
+            },
+            envelope: {
+              attack: 0.002,
+              decay: 0.06,
+              sustain: 0,
+              release: 0.025,
+            },
+          }),
+        );
+
+        instrument.volume.value = -4;
+        instrument.maxPolyphony = 16;
+        instrument.connect(distortion);
+
+        rogueInstruments[role] = instrument;
+        return instrument;
+      }
 
       function ensureInstrument(role) {
         if (instruments[role]) {
@@ -179,8 +218,6 @@ export function createAudio({
         return instrument;
       }
 
-      // Phones initially create only their own instrument.
-      // Cover instruments are added when needed.
       const initialRoles = selected ? [selected] : ROLES;
 
       for (const role of initialRoles) {
@@ -192,6 +229,8 @@ export function createAudio({
         reverb,
         instruments,
         ensureInstrument,
+        rogueInstruments,
+        ensureRogueInstrument,
       };
     } catch (error) {
       for (const node of nodes.reverse()) {
@@ -253,7 +292,6 @@ export function createAudio({
       );
     }
 
-    // No await precedes this: iOS needs it inside the tap.
     await Tone.start();
 
     if (disposed) {
@@ -333,9 +371,7 @@ export function createAudio({
       return false;
     }
 
-    // Corruption retains the agent's own instrument.
-    // Cover notes outside its usual register use
-    // the missing job's supporting instrument.
+    // Honest cover parts may need a supporting instrument.
     let role = note.role;
 
     if (role === 'melodist' && note.pitch < 62) {
@@ -352,7 +388,6 @@ export function createAudio({
 
     let pitch = note.pitch;
 
-    // D2 becomes D3. Already raised notes stay unchanged.
     if (phoneSpeaker) {
       while (pitch < 50) {
         pitch += 12;
@@ -360,7 +395,9 @@ export function createAudio({
     }
 
     try {
-      const instrument = graph.ensureInstrument(role);
+      const instrument = note.rogue
+        ? graph.ensureRogueInstrument(note.role)
+        : graph.ensureInstrument(role);
 
       instrument.triggerAttackRelease(
         Tone.Frequency(pitch, 'midi').toFrequency(),
@@ -372,7 +409,6 @@ export function createAudio({
       stats.scheduled++;
       return true;
     } catch (error) {
-      // An audio error must not interrupt painting/metrics.
       stats.errors++;
       stats.lastError = String(error.message ?? error);
       return false;
@@ -387,6 +423,9 @@ export function createAudio({
       voice: selected,
       phoneSpeaker: Boolean(phoneSpeaker),
       instruments: Object.keys(graph?.instruments ?? {}),
+      rogueInstruments: Object.keys(
+        graph?.rogueInstruments ?? {},
+      ),
     };
   }
 
