@@ -268,6 +268,11 @@ export async function createRuntime({ seed = 0, leadMs = START_LEAD_MS, agentHos
       // survive the cut as long as the saboteur stays corrupted.
       if (!on) rt.clearFlags();
     },
+    /** Display only: share the Stage's current story line with the phones ({key, title, line}).
+     *  Sent on telemetry, which agents never read (isolation rule 1), so it can't steer the music. */
+    narrate(story) {
+      telemetry.postMessage({ type: 'story', key: story.key, title: story.title, line: story.line });
+    },
     /** Experimenter: forget every rogue verdict (Restore does this too, along with loss 0). */
     clearFlags() {
       for (const aid of AGENT_IDS) toAgent(aid, { cmd: 'resetFlags' });
